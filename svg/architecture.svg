@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1020" height="470" viewBox="0 0 1020 470" version="1.1" xmlns="http://www.w3.org/2000/svg">
+ <defs>
+  <marker id="arrow" overflow="visible" orient="auto-start-reverse" markerWidth="9" markerHeight="7" refX="7" refY="3.5">
+   <path d="M0 0 L8 3.5 L0 7 z" fill="#334155"/>
+  </marker>
+  <style>
+   text { font-family: 'Roboto', Arial, sans-serif; fill: #0f172a; }
+   .panel-b { fill: #eff6ff; stroke: #1d4ed8; stroke-width: 2; }
+   .panel-h { fill: #f0fdf4; stroke: #15803d; stroke-width: 2; }
+   .ptitle { font-size: 17px; font-weight: 700; }
+   .box  { fill: #ffffff; stroke: #334155; stroke-width: 1.4; }
+   .t    { font-size: 14.5px; font-weight: 600; }
+   .s    { font-size: 12px; fill: #475569; }
+   .flow { fill: none; stroke: #334155; stroke-width: 1.6; }
+   .net  { font-size: 13px; font-weight: 600; fill: #b45309; }
+   .netsub { font-size: 11.5px; fill: #64748b; }
+  </style>
+ </defs>
+
+ <!-- ===== Board panel ===== -->
+ <rect class="panel-b" x="30" y="52" width="360" height="380" rx="10"/>
+ <text class="ptitle" x="210" y="80" text-anchor="middle" fill="#1d4ed8">TRX-duo board — Zynq-7010 (FPGA Stage 1)</text>
+
+ <g>
+  <rect class="box" x="60" y="98" width="300" height="52" rx="6"/>
+  <text class="t" x="210" y="120" text-anchor="middle">ADC A + ADC B  @ 125 Msps</text>
+  <text class="s" x="210" y="138" text-anchor="middle">dual-ADC, packed into one complex stream</text>
+ </g>
+ <path class="flow" d="M210 150 V168" marker-end="url(#arrow)"/>
+ <g>
+  <rect class="box" x="60" y="170" width="300" height="52" rx="6"/>
+  <text class="t" x="210" y="192" text-anchor="middle">WOLA (T=4) + 4096-pt FFT</text>
+  <text class="s" x="210" y="210" text-anchor="middle">wideband analysis, ~30.5 kHz / bin</text>
+ </g>
+ <path class="flow" d="M210 222 V240" marker-end="url(#arrow)"/>
+ <g>
+  <rect class="box" x="60" y="242" width="300" height="52" rx="6"/>
+  <text class="t" x="210" y="264" text-anchor="middle">A/B split + bin-select (+ guard)</text>
+  <text class="s" x="210" y="282" text-anchor="middle">keep only the client-selected bins</text>
+ </g>
+ <path class="flow" d="M210 294 V312" marker-end="url(#arrow)"/>
+ <g>
+  <rect class="box" x="60" y="314" width="300" height="52" rx="6"/>
+  <text class="t" x="210" y="336" text-anchor="middle">quantise + fcfb_server</text>
+  <text class="s" x="210" y="354" text-anchor="middle">int16/int24, seq-tagged, zero-copy egress</text>
+ </g>
+
+ <!-- ===== Network ===== -->
+ <text class="net" x="510" y="150" text-anchor="middle">1 GbE</text>
+
+ <!-- TCP control: host -> board -->
+ <text class="netsub" x="510" y="190" text-anchor="middle">TCP control</text>
+ <text class="netsub" x="510" y="205" text-anchor="middle">request {freq, ADC} · retune</text>
+ <path class="flow" d="M628 215 H392" marker-end="url(#arrow)"/>
+
+ <!-- UDP data: board -> host -->
+ <path class="flow" d="M392 262 H628" marker-end="url(#arrow)"/>
+ <text class="netsub" x="510" y="285" text-anchor="middle">UDP + jumbo frames</text>
+ <text class="netsub" x="510" y="300" text-anchor="middle">selected bins (zero-copy)</text>
+
+ <!-- ===== Host panel ===== -->
+ <rect class="panel-h" x="630" y="52" width="360" height="380" rx="10"/>
+ <text class="ptitle" x="810" y="80" text-anchor="middle" fill="#15803d">Host PC (Stage 2) — Go applications</text>
+
+ <g>
+  <rect class="box" x="660" y="98" width="300" height="52" rx="6"/>
+  <text class="t" x="810" y="120" text-anchor="middle">ingest + demux</text>
+  <text class="s" x="810" y="138" text-anchor="middle">seq-anchored to wall-clock, loss-tolerant</text>
+ </g>
+ <path class="flow" d="M810 150 V168" marker-end="url(#arrow)"/>
+ <g>
+  <rect class="box" x="660" y="170" width="300" height="52" rx="6"/>
+  <text class="t" x="810" y="192" text-anchor="middle">windowed-dual synth + resample</text>
+  <text class="s" x="810" y="210" text-anchor="middle">per-channel; dual-ADC diversity combine</text>
+ </g>
+ <path class="flow" d="M760 222 V242" marker-end="url(#arrow)"/>
+ <path class="flow" d="M860 222 V242" marker-end="url(#arrow)"/>
+ <g>
+  <rect class="box" x="660" y="244" width="146" height="60" rx="6"/>
+  <text class="t" x="733" y="268" text-anchor="middle">fcfbfarm</text>
+  <text class="s" x="733" y="286" text-anchor="middle">jt9 / wsprd</text>
+  <text class="s" x="733" y="300" text-anchor="middle">FT8·FT4·WSPR</text>
+ </g>
+ <g>
+  <rect class="box" x="814" y="244" width="146" height="60" rx="6"/>
+  <text class="t" x="887" y="268" text-anchor="middle">fcfbhpsdr</text>
+  <text class="s" x="887" y="286" text-anchor="middle">HPSDR P2</text>
+  <text class="s" x="887" y="300" text-anchor="middle">piHPSDR·Thetis</text>
+ </g>
+ <path class="flow" d="M733 304 V330" marker-end="url(#arrow)"/>
+ <path class="flow" d="M887 304 V330" marker-end="url(#arrow)"/>
+ <text class="s" x="733" y="346" text-anchor="middle">decoded spots</text>
+ <text class="s" x="887" y="346" text-anchor="middle">RX I/Q to client</text>
+
+ <text class="s" x="810" y="414" text-anchor="middle">fcfbinfo: board telemetry (temp, voltages, gateware) on a separate port</text>
+</svg>

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1070" height="280" viewBox="0 0 1070 280" version="1.1" xmlns="http://www.w3.org/2000/svg">
+ <defs>
+  <marker id="arrow" overflow="visible" orient="auto-start-reverse" markerWidth="9" markerHeight="7" refX="7" refY="3.5">
+   <path d="M0 0 L8 3.5 L0 7 z" fill="#334155"/>
+  </marker>
+  <style>
+   text { font-family: 'Roboto', Arial, sans-serif; fill: #0f172a; }
+   .region-b { fill: #eff6ff; stroke: #1d4ed8; stroke-width: 1.5; }
+   .region-h { fill: #f0fdf4; stroke: #15803d; stroke-width: 1.5; }
+   .rtitle-b { font-size: 14px; font-weight: 700; fill: #1d4ed8; }
+   .rtitle-h { font-size: 14px; font-weight: 700; fill: #15803d; }
+   .box  { fill: #ffffff; stroke: #334155; stroke-width: 1.4; }
+   .t    { font-size: 13.5px; font-weight: 600; }
+   .s    { font-size: 11px; fill: #475569; }
+   .flow { fill: none; stroke: #334155; stroke-width: 1.6; }
+   .net  { font-size: 12.5px; font-weight: 600; fill: #b45309; }
+  </style>
+ </defs>
+
+ <!-- region backgrounds -->
+ <rect class="region-b" x="15" y="95" width="570" height="96" rx="8"/>
+ <rect class="region-h" x="625" y="95" width="430" height="96" rx="8"/>
+ <text class="rtitle-b" x="300" y="82" text-anchor="middle">Board — FPGA Stage 1</text>
+ <text class="rtitle-h" x="840" y="82" text-anchor="middle">Host — Stage 2</text>
+
+ <!-- board stages -->
+ <g>
+  <rect class="box" x="30" y="112" width="120" height="62" rx="6"/>
+  <text class="t" x="90" y="138" text-anchor="middle">ADC A / B</text>
+  <text class="s" x="90" y="156" text-anchor="middle">2 × 125 Msps</text>
+ </g>
+ <path class="flow" d="M150 143 H168" marker-end="url(#arrow)"/>
+ <g>
+  <rect class="box" x="170" y="112" width="120" height="62" rx="6"/>
+  <text class="t" x="230" y="138" text-anchor="middle">WOLA + FFT</text>
+  <text class="s" x="230" y="156" text-anchor="middle">4096-pt analysis</text>
+ </g>
+ <path class="flow" d="M290 143 H308" marker-end="url(#arrow)"/>
+ <g>
+  <rect class="box" x="310" y="112" width="120" height="62" rx="6"/>
+  <text class="t" x="370" y="138" text-anchor="middle">bin-select</text>
+  <text class="s" x="370" y="156" text-anchor="middle">keep W + guard</text>
+ </g>
+ <path class="flow" d="M430 143 H448" marker-end="url(#arrow)"/>
+ <g>
+  <rect class="box" x="450" y="112" width="120" height="62" rx="6"/>
+  <text class="t" x="510" y="138" text-anchor="middle">quantise</text>
+  <text class="s" x="510" y="156" text-anchor="middle">int16/24 + seq</text>
+ </g>
+
+ <!-- network gap -->
+ <path class="flow" d="M570 143 H622" stroke-width="2.4" marker-end="url(#arrow)"/>
+ <text class="net" x="598" y="128" text-anchor="middle">UDP</text>
+ <text class="net" x="598" y="170" text-anchor="middle">jumbo</text>
+
+ <!-- host stages -->
+ <g>
+  <rect class="box" x="640" y="112" width="120" height="62" rx="6"/>
+  <text class="t" x="700" y="138" text-anchor="middle">ingest</text>
+  <text class="s" x="700" y="156" text-anchor="middle">demux + anchor</text>
+ </g>
+ <path class="flow" d="M760 143 H778" marker-end="url(#arrow)"/>
+ <g>
+  <rect class="box" x="780" y="112" width="120" height="62" rx="6"/>
+  <text class="t" x="840" y="138" text-anchor="middle">synthesis</text>
+  <text class="s" x="840" y="156" text-anchor="middle">dual + NCO</text>
+ </g>
+ <path class="flow" d="M900 143 H918" marker-end="url(#arrow)"/>
+ <g>
+  <rect class="box" x="920" y="112" width="120" height="62" rx="6"/>
+  <text class="t" x="980" y="138" text-anchor="middle">output</text>
+  <text class="s" x="980" y="156" text-anchor="middle">WAV / RX I/Q</text>
+ </g>
+
+ <text class="s" x="535" y="232" text-anchor="middle">The full-rate wideband analysis runs once on the board; only the selected bins cross the link, and the host reconstructs as many channels as the budget allows.</text>
+ <text class="s" x="535" y="250" text-anchor="middle">A TCP control channel (request + live retune) runs alongside the UDP data stream.</text>
+</svg>

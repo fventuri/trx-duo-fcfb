@@ -1,0 +1,5 @@
+_site/
+.sass-cache/
+
+# Diagrams are generated from svg/ by `make` (inkscape -> pngquant)
+/img/

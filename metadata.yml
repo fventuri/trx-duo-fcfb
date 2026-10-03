@@ -1,0 +1,8 @@
+site_title: TRX-duo fcfb
+
+description: A split fast-convolution filter bank (FCFB) for the TRX-duo — FPGA analysis channelizer plus Go host applications
+
+source: https://github.com/fventuri/trx-duo-fcfb
+issues: https://github.com/fventuri/trx-duo-fcfb/issues
+
+release_latest: https://github.com/fventuri/trx-duo-fcfb/releases/latest
