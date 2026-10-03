@@ -1,0 +1,67 @@
+From: Franco Venturi <fventuri@comcast.net>
+Subject: [PATCH] arm: dts: zynq-trx-duo: fcfb PL DMA ring as a u-dma-buf CMA pool
+
+Add the fcfb PL DMA egress ring to the base TRX-duo device tree (created by
+0001-add-trx-duo-devicetree.patch) as a page-backed CMA pool plus a u-dma-buf
+instance, replacing the earlier no-map carve-out.
+
+The ring at 0x10000000..0x1a000000 is now a `reusable` shared-dma-pool (CMA)
+region -- so it keeps struct pages -- and a u-dma-buf node exports it to
+userspace as /dev/udmabuf0. This is the Option B zero-copy egress path: the
+board server mmaps /dev/udmabuf0, reads its physical address from
+/sys/class/u-dma-buf/udmabuf0/phys_addr, programs the PL DMA base (the fcfb
+`dma_base` register) to it, and streams UDP with MSG_ZEROCOPY straight from the
+ring -- which needs get_user_pages to pin the buffer, hence real pages (a no-map
+/dev/mem mapping is VM_PFNMAP and cannot be pinned). The fixed reg keeps the
+memory map identical to the old no-map ring (0x1a000000..0x20000000 stays
+Linux's) and 0x0a000000 = 160 MiB = the DMA ring size baked into the bitstream.
+reserved-memory must live in the base DT: it is parsed at early boot, before any
+runtime fpga-region overlay could add it.
+
+Signed-off-by: Franco Venturi <fventuri@comcast.net>
+---
+--- a/arch/arm/boot/dts/xilinx/zynq-trx-duo.dts
++++ b/arch/arm/boot/dts/xilinx/zynq-trx-duo.dts
+@@ -22,6 +22,42 @@
+ 		device_type = "memory";
+ 		reg = <0x0 0x20000000>;
+ 	};
++	reserved-memory {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges;
++
++		/* fcfb Stage-1 PL DMA egress ring, as a page-backed CMA pool
++		 * (reusable shared-dma-pool) rather than a no-map carve-out: the
++		 * u-dma-buf node below allocates it and exports it as
++		 * /dev/udmabuf0 with real struct pages, so the AXI-HP0 PL master
++		 * writes here (not cache-coherent), the server mmaps it, AND the
++		 * NIC can zero-copy (MSG_ZEROCOPY / get_user_pages) from it. The
++		 * fixed reg keeps the map identical to the old no-map ring
++		 * (0x1a000000..0x20000000 stays Linux's). */
++		fcfb_ring: fcfb-dma-pool@10000000 {
++			compatible = "shared-dma-pool";
++			reusable;
++			reg = <0x10000000 0x0a000000>;
++		};
++	};
++
++	/* u-dma-buf instance exporting the fcfb ring as /dev/udmabuf0. The board
++	 * server reads /sys/class/u-dma-buf/udmabuf0/phys_addr, programs the PL
++	 * DMA base (dma_base register) to it, then streams zero-copy UDP from the
++	 * mmap. size 0x0a000000 = 160 MiB = the DMA ring size in the bitstream.
++	 * option = 0x1020: quirk_mmap_mode[12:10]=4 (PAGE) builds the struct-page
++	 * array so mmap uses vmf_insert_page (VM_MIXEDMAP, NOT VM_PFNMAP) -- REQUIRED
++	 * for get_user_pages / MSG_ZEROCOPY to pin the ring; dma_mask[7:0]=32. */
++	udmabuf_fcfb: udmabuf@0 {
++		compatible = "ikwzm,u-dma-buf";
++		device-name = "udmabuf0";
++		minor-number = <0>;
++		size = <0x0a000000>;
++		memory-region = <&fcfb_ring>;
++		option = <0x0 0x1020>;
++	};
++
+ 
+ 	chosen {
+ 		bootargs = "console=ttyPS0,115200 root=/dev/ram rw earlyprintk";

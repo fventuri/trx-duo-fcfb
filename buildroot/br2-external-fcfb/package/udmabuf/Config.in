@@ -1,0 +1,17 @@
+config BR2_PACKAGE_UDMABUF
+	bool "udmabuf (u-dma-buf)"
+	depends on BR2_LINUX_KERNEL
+	help
+	  ikwzm u-dma-buf: an out-of-tree kernel module that hands out a
+	  user-space-mappable, page-backed (CMA) DMA buffer with a known
+	  physical address (exported via /sys/class/u-dma-buf/<name>/phys_addr).
+
+	  fcfb uses it as the PL DMA egress ring (Option B / runtime dma_base):
+	  the board server points the PL DMA at the udmabuf physical address and
+	  the NIC zero-copies (MSG_ZEROCOPY) straight from it, replacing the
+	  copy-heavy /dev/mem reserved-region path.
+
+	  https://github.com/ikwzm/udmabuf
+
+comment "udmabuf needs a Linux kernel to be built"
+	depends on !BR2_LINUX_KERNEL

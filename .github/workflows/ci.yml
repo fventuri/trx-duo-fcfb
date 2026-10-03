@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  go:
+    name: Go host apps (vet + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: host_app/gofcfb
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: host_app/gofcfb/go.mod
+          cache: false  # zero-dependency module, no go.sum
+      - name: go vet
+        run: go vet ./...
+      - name: go build
+        run: |
+          go build ./cmd/fcfbfarm
+          go build ./cmd/fcfbhpsdr
+          go build ./cmd/fcfbinfo
+      - name: go test
+        run: go test ./...
+
+  c:
+    name: Board-server admission check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: host
+    steps:
+      - uses: actions/checkout@v4
+      - name: build + run test_budget
+        run: make test

@@ -1,0 +1,39 @@
+# fcfb defconfig fragment for the TRX-duo.
+#
+# This is NOT a standalone defconfig. It is merged on top of the base
+# trx-duo_defconfig (from the trx-duo-buildroot external) by build-fcfb.sh, so
+# that base choices - including the kernel version and the rootfs size - are
+# inherited and only the fcfb-specific additions live here. See that wrapper for
+# the merge.
+#
+# fcfb adds no packages, no openssl, and no rootfs-size change (its prebuilt
+# binaries are ~1 MB and fit the base default). The only deltas are three
+# list-valued options. Buildroot reads these as space-separated lists, but a
+# merged .config keeps one value per symbol, so each line must repeat the base
+# value (via $(BR2_EXTERNAL_TRXDUO_PATH)) and append the fcfb value (via
+# $(BR2_EXTERNAL_TRXDUO_FCFB_PATH)). Buildroot expands both $(...) refs.
+#
+# Note: the kernel config-fragment list (BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES)
+# is deliberately NOT overridden here - fcfb needs no extra kernel symbols
+# (fcfb_server drives the PL DMA ring through /dev/mem; there is no kmod/UIO), so
+# the base value is left intact.
+
+# --- rootfs overlay: base + fcfb (prebuilt fcfb_server / fcfb_capture) ---------
+BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_TRXDUO_PATH)/board/trx-duo/overlay $(BR2_EXTERNAL_TRXDUO_FCFB_PATH)/board/overlay"
+
+# --- post-build: base (uEnv + led_blinker) + fcfb (build the fcfb_stage1 proj) -
+BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_TRXDUO_PATH)/board/trx-duo/post-build.sh $(BR2_EXTERNAL_TRXDUO_FCFB_PATH)/board/post-build-fcfb.sh"
+
+# --- kernel patches: base (trx-duo DT, XWAY PHY, macb jumbo + zcudp) + fcfb
+# (0001-fcfb-dt reserves the DMA ring / CMA pool). The generic macb features
+# (jumbo frames, zcudp zero-copy UDP TX) now live in the base trx-duo-buildroot
+# tree so other projects inherit them; only the fcfb-specific DT reservation
+# stays here. Both dirs are listed so both patch sets apply.
+BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_TRXDUO_PATH)/board/trx-duo/patches $(BR2_EXTERNAL_TRXDUO_FCFB_PATH)/board/patches"
+
+# --- udmabuf: ikwzm u-dma-buf out-of-tree kernel module (Option B zero-copy PL
+# DMA egress ring). The board server maps /dev/udmabuf0, programs the PL DMA
+# base (dma_base register) to its physical address, and zero-copies UDP straight
+# from it. Its DT node + reserved CMA pool live in the base trx-duo DT (fcfb
+# patch 0001-fcfb-dt); the kernel CMA/DMA_CMA options are asserted by the package.
+BR2_PACKAGE_UDMABUF=y

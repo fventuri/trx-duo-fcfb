@@ -1,0 +1,8 @@
+# jt9/wsjtx working files dropped in cwd
+decoded.txt
+jt9_wisdom.dat
+timer.out
+fft.wisdom
+*.wav
+*.bin
+!fixtures/*.bin
