@@ -1,0 +1,50 @@
+#!/bin/sh
+#
+# S99fcfb - autostart the fcfb Stage-1 channelizer at boot.
+#   1. program the PL with the fcfb_stage1 gateware (start-project), then
+#   2. start fcfb_server (TCP control :7373, UDP data, board-info :7374) with the
+#      shipped SD defaults (int24, jumbo MTU 3980 -- matches eth0).
+#
+# Runs after S40network, so eth0 is already at the jumbo MTU (set by
+# etc/network/if-pre-up.d/mtu-jumbo). The PL is programmed once per boot;
+# start-project records the gateware name that fcfb_server checks before it
+# touches the AXI fabric (talking to registers a different gateware provides would
+# wedge the bus).
+
+DAEMON=/root/fcfb_server
+DAEMON_ARGS="-b 24 -w 512 -u 3980"
+PIDFILE=/var/run/fcfb_server.pid
+LOGFILE=/var/log/fcfb_server.log
+GATEWARE=fcfb_stage1
+
+start() {
+	printf 'Starting fcfb: '
+	# 1. Program the PL once (skip if this gateware is already loaded).
+	if [ "$(cat /tmp/current-gateware 2>/dev/null)" != "$GATEWARE" ]; then
+		if ! start-project "$GATEWARE" >>"$LOGFILE" 2>&1; then
+			echo "PL PROGRAM FAILED"
+			return 1
+		fi
+	fi
+	# 2. Start the server, detached, appending to a log (it writes to stderr).
+	# shellcheck disable=SC2086 # DAEMON_ARGS must word-split
+	start-stop-daemon --start --background --make-pidfile --pidfile "$PIDFILE" \
+		--exec /bin/sh -- -c "exec $DAEMON $DAEMON_ARGS >>$LOGFILE 2>&1"
+	status=$?
+	if [ "$status" -eq 0 ]; then echo "OK"; else echo "FAIL"; fi
+	return "$status"
+}
+
+stop() {
+	printf 'Stopping fcfb: '
+	start-stop-daemon --stop --quiet --pidfile "$PIDFILE"
+	rm -f "$PIDFILE"
+	echo "OK"
+}
+
+case "$1" in
+	start) start ;;
+	stop) stop ;;
+	restart | reload) stop; start ;;
+	*) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac

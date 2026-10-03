@@ -1,0 +1,89 @@
+name: Release
+
+# Build the host binaries, package them, and attach a single SHA256SUMS.txt
+# covering the host zips and the board SD-card image.
+#
+# How to cut a release:
+#   1. Build the board image locally (buildroot/build-fcfb.sh -> sdcard.img).
+#   2. Create a release for the tag (e.g. v1.0.0) and upload sdcard.img to it.
+#   3. Publish the release. This workflow then cross-compiles the three host
+#      binaries, zips them (Linux / Windows / macOS), downloads the sdcard.img
+#      you attached, writes SHA256SUMS.txt over the image + zips, and uploads
+#      the zips and SHA256SUMS.txt back to the release.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build and attach artifacts to"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: host_app/gofcfb/go.mod
+          cache: false
+
+      - name: Build and package host binaries
+        working-directory: host_app/gofcfb
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+
+          # extras shipped alongside the binaries in every zip
+          EXTRAS="README.md farm.example.ini farm.example.dual.ini hpsdr.example.ini \
+                  allbands.ini allbands-dual.ini allbands-bothadcs.ini allbands-dual-soak.ini \
+                  dd-soak dual-decoder"
+
+          build_zip() {
+            local goos="$1" goarch="$2" label="$3" ext="$4"
+            local stage="fcfb-host-$label"
+            rm -rf "$stage"; mkdir -p "$stage"
+            for cmd in fcfbfarm fcfbhpsdr fcfbinfo; do
+              GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
+                go build -trimpath -ldflags="-s -w" -o "$stage/$cmd$ext" "./cmd/$cmd"
+            done
+            cp $EXTRAS "$stage/"
+            (cd "$stage" && zip -r "$GITHUB_WORKSPACE/dist/$stage.zip" .)
+          }
+
+          build_zip linux   amd64 linux-amd64   ""
+          build_zip windows amd64 windows-amd64 ".exe"
+          build_zip darwin  arm64 macos-arm64   ""
+
+          ls -l "$GITHUB_WORKSPACE/dist"
+
+      - name: Fetch the board SD-card image from the release
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.img' --dir . \
+            || echo "No *.img attached to $TAG yet — SHA256SUMS will cover the host zips only."
+
+      - name: Write SHA256SUMS.txt
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=( *.img *.zip )
+          sha256sum "${files[@]}" | tee SHA256SUMS.txt
+
+      - name: Upload artifacts to the release
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            *.zip SHA256SUMS.txt

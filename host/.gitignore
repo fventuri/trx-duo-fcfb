@@ -1,0 +1,6 @@
+fcfb_server
+fcfb_server_sd
+test_budget
+*.o
+*.bin
+*.bin.2

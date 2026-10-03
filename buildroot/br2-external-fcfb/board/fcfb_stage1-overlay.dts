@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * TRX-duo: program the PL from Linux with the fcfb Stage-1 channelizer.
+ *
+ * Same mechanism as led_blinker-overlay.dts: adding "firmware-name" to the
+ * mainline zynq-7000 fpga-region (label: fpga_full) via an overlay makes
+ * of-fpga-region program the PL through the Zynq FPGA manager.  fcfb Stage-1
+ * exposes an AXI-Lite register block and an AXI-HP DMA master, but neither
+ * needs a child device node for the /dev/mem bring-up driver, so (like
+ * led_blinker) this overlay only sets firmware-name.
+ *
+ * The referenced file must be the byte-swapped .bin (NOT the .bit), produced
+ * by bit2bin.py at build time and placed on the firmware search path
+ * (/lib/firmware).
+ */
+/dts-v1/;
+/plugin/;
+
+&fpga_full {
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	firmware-name = "fcfb_stage1.bit.bin";
+	/* full reconfiguration: no "partial-fpga-config" */
+};

@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+# dd-soak -- dual-decoder + per-antenna attribution logging (soak analysis only).
+#
+# Same split-stereo-and-run-per-channel behaviour as dual-decoder, PLUS it appends
+# every raw decode line, tagged with the antenna (A=left/ADC A, B=right/ADC B), the
+# dial frequency and a mode tag, to $SOAK_LOG.  stdout is still passed through so
+# fcfbfarm's normal parsing (spots.log) is unchanged -- the side log is purely extra.
+#
+# Invoke from an fcfbfarm [decoder] cmd as:
+#     cmd = dd-soak {fmhz} {utc} ft8 jt9 --ft8 {wav}
+#     cmd = dd-soak {fmhz} {utc} wspr wsprd -f {fmhz} {wav}
+# i.e. dd-soak <dial_mhz> <utc> <modetag> <the real decoder cmd... {wav}>.  The real
+# window UTC must come from the farm ({utc}) because the temp wav is always named
+# 000000_000000.wav, so the decoder's own line timestamp is meaningless.
+#
+# $SOAK_LOG line format (tab-separated):  ANT \t DIAL_MHZ \t UTC \t MODE \t <raw line>
+import os
+import sys
+import wave
+import array
+import subprocess
+
+SOAK_LOG = os.environ.get("SOAK_LOG", "")
+
+
+def log_lines(ant, dial, utc, mode, text):
+    if not SOAK_LOG or not text:
+        return
+    try:
+        fd = os.open(SOAK_LOG, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+        try:
+            for line in text.splitlines():
+                if line.strip() == "":
+                    continue
+                rec = ("%s\t%s\t%s\t%s\t%s\n" % (ant, dial, utc, mode, line)).encode(
+                    "utf-8", "replace"
+                )
+                os.write(fd, rec)  # O_APPEND + one short write = atomic across procs
+        finally:
+            os.close(fd)
+    except Exception as e:  # never let logging break a decode
+        sys.stderr.write("dd-soak: log failed: %s\n" % e)
+
+
+def find_wav(argv):
+    idx = None
+    for i, a in enumerate(argv):
+        if a.lower().endswith(".wav") and os.path.isfile(a):
+            idx = i
+    return idx
+
+
+def write_mono(path, samples, framerate, sampwidth):
+    w = wave.open(path, "wb")
+    try:
+        w.setnchannels(1)
+        w.setsampwidth(sampwidth)
+        w.setframerate(framerate)
+        w.writeframes(samples.tobytes())
+    finally:
+        w.close()
+
+
+def run_and_forward(cmd, ant, dial, utc, mode):
+    # capture stdout so we can both forward it (to fcfbfarm) and tag it (to SOAK_LOG)
+    res = subprocess.run(cmd, stdout=subprocess.PIPE)
+    out = res.stdout.decode("utf-8", "replace") if res.stdout else ""
+    if out:
+        sys.stdout.write(out)
+        sys.stdout.flush()
+    log_lines(ant, dial, utc, mode, out)
+    return res.returncode
+
+
+def main():
+    argv = sys.argv[1:]
+    if len(argv) < 4:
+        sys.stderr.write("dd-soak: usage: dd-soak <dial_mhz> <utc> <mode> <decoder... {wav}>\n")
+        return 2
+    dial, utc, mode, rest = argv[0], argv[1], argv[2], argv[3:]
+
+    wav_idx = find_wav(rest)
+    if wav_idx is None:
+        sys.stderr.write("dd-soak: no .wav in: %s\n" % " ".join(rest))
+        return 2
+    wavpath = rest[wav_idx]
+
+    r = wave.open(wavpath, "rb")
+    nch, sampwidth, framerate, nframes = (
+        r.getnchannels(), r.getsampwidth(), r.getframerate(), r.getnframes(),
+    )
+    data = r.readframes(nframes)
+    r.close()
+
+    if nch != 2:  # mono passthrough (shouldn't happen for adc=3, but stay safe)
+        return run_and_forward(rest, "M", dial, utc, mode)
+    if sampwidth != 2:
+        sys.stderr.write("dd-soak: only 16-bit PCM supported\n")
+        return 2
+
+    inter = array.array("h")
+    inter.frombytes(data)
+    left, right = inter[0::2], inter[1::2]  # A, B
+
+    outdir = os.path.dirname(wavpath) or "."
+    base = os.path.basename(wavpath)  # e.g. 260927_1830.wav
+    rc = 0
+    tmp = []
+    try:
+        # A-/B- PREFIX, mode-independent (same as dual-decoder): keeps the numeric
+        # "..._HHMM(SS).wav" tail so jt9/wsprd parse the filename timestamp; a suffix
+        # would shift wsprd's 4-char HHMM field and drop every WSPR decode.
+        for ant, samples in (("A", left), ("B", right)):
+            t = os.path.join(outdir, "%s-%s" % (ant, base))
+            tmp.append(t)
+            write_mono(t, samples, framerate, sampwidth)
+            cmd = list(rest)
+            cmd[wav_idx] = t
+            code = run_and_forward(cmd, ant, dial, utc, mode)
+            if code != 0:
+                rc = code
+    finally:
+        for t in tmp:
+            try:
+                os.remove(t)
+            except OSError:
+                pass
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

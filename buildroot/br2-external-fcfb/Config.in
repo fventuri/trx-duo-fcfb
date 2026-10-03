@@ -1,0 +1,5 @@
+# fcfb ships its target binaries (fcfb_server, fcfb_capture) prebuilt in the
+# rootfs overlay (board/overlay/root), and the PL project artifacts are produced
+# by board/post-build-fcfb.sh. Its one real Buildroot package is the udmabuf
+# out-of-tree kernel module (the zero-copy PL DMA egress ring).
+source "$BR2_EXTERNAL_TRXDUO_FCFB_PATH/package/udmabuf/Config.in"

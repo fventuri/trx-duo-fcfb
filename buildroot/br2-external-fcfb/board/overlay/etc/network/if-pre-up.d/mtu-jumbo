@@ -1,0 +1,15 @@
+#!/bin/sh
+# fcfb jumbo-frame default: raise eth0 to MTU 3980 for the FCFB UDP egress path.
+#
+# Runs from ifupdown's if-pre-up.d hook, i.e. while eth0 is still DOWN -- which is
+# exactly when the Cadence macb/GEM wants its MTU changed (an in-place resize on a
+# carrier-up link is unreliable). IP-agnostic: it only sets the MTU, leaving the
+# address/route config to /etc/network/interfaces, so it composes with any IP scheme.
+#
+# MTU 3980 is the Step-5 jumbo default (loss-free ~79 MB/s, raw ~107 MB/s on GbE);
+# it needs the MACB_CAPS_JUMBO kernel patch (board/patches/linux/*/0003-macb-jumbo.patch)
+# and the host NIC raised to a matching MTU. To disable, remove this file (or lower
+# the value); the server's -u must always match the actual eth0 MTU.
+[ "$IFACE" = eth0 ] || exit 0
+ip link set dev eth0 mtu 3980 2>/dev/null || ifconfig eth0 mtu 3980
+exit 0
