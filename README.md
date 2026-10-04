@@ -58,6 +58,12 @@ TRX-duo, **xc7z010clg400-1** (Zynq-7010). The SD-card image is built as a second
 Full documentation — architecture, signal flow, the board image, the host apps, and
 the wire protocol — is published at <https://fventuri.github.io/trx-duo-fcfb/>.
 
+## Contributing
+
+Pull requests are not accepted; instead, please open an issue for any bug, change,
+or improvement, and we will discuss and implement it together. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
+
 ## References
 
 - Mark Borgerding, *Turning Overlap-Save into a Multiband Mixing, Downsampling Filter
