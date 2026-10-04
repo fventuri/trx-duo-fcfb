@@ -26,7 +26,7 @@ func (s *stringList) Set(v string) error {
 // (see emitconfig.go); without one it builds a single radio (or -radio N) from flags.
 func EmitMain() {
 	fs := flag.NewFlagSet("fcfbhpsdr", flag.ExitOnError)
-	cfgPath := fs.String("config", "", "config file (INI/TOML-style, see hpsdr.example.ini); overrides the flags below")
+	cfgPath := fs.String("config", "", "config file (INI/TOML-style, see examples/hpsdr.example.ini); overrides the flags below")
 	board := fs.String("board", "192.168.255.20", "fcfb board IP")
 	bind := fs.String("bind", "0.0.0.0", "single-radio bind interface (ignored if -radio given)")
 	var radios stringList

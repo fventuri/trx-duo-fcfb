@@ -45,15 +45,24 @@ GOOS=darwin  GOARCH=arm64 go build -o fcfbhpsdr    ./cmd/fcfbhpsdr
 ## Run the decoder farm
 
 ```
-./fcfbfarm -config farm.ini        # see farm.example.ini
+./fcfbfarm -config farm.ini        # see examples/farm.example.ini
 ```
 
 Config is INI/TOML-style: a `[board]` section, one `[decoder]` per external
 decoder (its `cmd`, output `parser` = `jt9`|`wspr`, and window `period`/`capture`),
 and one `[channel]` per receiver that references a decoder by name (see
-`farm.example.ini`). `cmd` takes `{wav} {fmhz} {fhz} {utc}` placeholders. For jumbo
+`examples/farm.example.ini`). `cmd` takes `{wav} {fmhz} {fhz} {utc}` placeholders. For jumbo
 frames, set the host NIC MTU to match the server's `-u` first
 (`sudo ip link set <if> mtu 3980`).
+
+By default each window's WAV is a temporary file deleted after decoding. To keep
+them, add a `[fcfbfarm]` section with `savewav =` a path template, e.g.
+`~/fcfb/wavs/{date}/{channel}/{antenna}-{timestamp}.wav`; the WAV is then written
+there (parent dirs created) and the decoder run on it in place. Placeholders:
+`{date}` `YYYYMMDD`, `{timestamp}` `YYYYMMDD_HHMMSS` (`YYYYMMDD_HHMM` for slow
+modes WSPR/FST4W), `{channel}`, `{antenna}` `A`/`B`/`AB` (adc 1/2/3),
+`{frequency}` (whole Hz, e.g. `10000000`), `{decoder}`; a leading `~` is the
+user's home.
 
 Offline decode of a captured v3 stream (for testing, no board): set
 `replay = capture.bin` in `[board]` — it decodes every channel from that one
@@ -62,7 +71,7 @@ window and exits. Verified bit-for-message-identical to `python3 farm.py --repla
 ## Run the HPSDR-P2 radio server
 
 ```
-./fcfbhpsdr -config hpsdr.ini      # farm-style config (see hpsdr.example.ini)
+./fcfbhpsdr -config hpsdr.ini      # farm-style config (see examples/hpsdr.example.ini)
 
 # or, config-less quick start (flags):
 ./fcfbhpsdr -board 192.168.255.20                       # one radio, all interfaces
@@ -74,7 +83,7 @@ Config is the same INI/TOML style as `fcfbfarm`: a `[board]` section (`ip`,
 `[radio]` per radio identity (`bind`, `mac`, `board_id` = `angelia`/`hermes`/… or a
 number, `n_ddc`) — omit `[radio]` for a single radio on `0.0.0.0`. The DDCs /
 frequencies / sample rates are **not** in the config: the P2 client chooses them at
-runtime. See `hpsdr.example.ini`. `-config` overrides the flags.
+runtime. See `examples/hpsdr.example.ini`. `-config` overrides the flags.
 
 **Multi-core reconstruction (`recon_workers`, default 1).** The emitter reconstructs
 every enabled DDC on a single worker goroutine. For a single client (≤8 DDCs) that is

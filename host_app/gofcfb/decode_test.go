@@ -3,16 +3,18 @@
 package fcfb
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// TestExampleConfigParses keeps farm.example.ini valid, and confirms the fst4w
-// decoder/channel wire up (parser "fst4w" is accepted, channel resolves it).
+// TestExampleConfigParses keeps examples/farm.example.ini valid, and confirms the
+// fst4w decoder/channel wire up (parser "fst4w" is accepted, channel resolves it).
 func TestExampleConfigParses(t *testing.T) {
-	cfg, err := parseConfig("farm.example.ini")
+	cfg, err := parseConfig("examples/farm.example.ini")
 	if err != nil {
-		t.Fatalf("parseConfig(farm.example.ini): %v", err)
+		t.Fatalf("parseConfig(examples/farm.example.ini): %v", err)
 	}
 	d, ok := cfg.decoder("fst4w120")
 	if !ok {
@@ -93,7 +95,7 @@ func TestParseJT9StripsAnnotation(t *testing.T) {
 // reveals the filename runDecoder created.
 func TestWavNameIsCycleStamp(t *testing.T) {
 	d := Decoder{Name: "x", Cmd: "sh -c ls", Parser: "jt9"}
-	out, err := runDecoder([]int16{0, 0, 0, 0}, 1, Channel{FcHz: 7.074e6}, d, "260927_183000")
+	out, err := runDecoder([]int16{0, 0, 0, 0}, 1, Channel{FcHz: 7.074e6}, d, "260927_183000", "")
 	if err != nil {
 		t.Fatalf("runDecoder: %v", err)
 	}
@@ -109,7 +111,7 @@ func TestWavNameIsCycleStamp(t *testing.T) {
 // slow-mode branch read the true HHMM.
 func TestWavNameSlowModeHHMM(t *testing.T) {
 	d := Decoder{Name: "wspr", Cmd: "sh -c ls", Parser: "wspr", PeriodS: 120, CaptureS: 114}
-	out, err := runDecoder([]int16{0, 0, 0, 0}, 1, Channel{FcHz: 7.0386e6}, d, "260927_223000")
+	out, err := runDecoder([]int16{0, 0, 0, 0}, 1, Channel{FcHz: 7.0386e6}, d, "260927_223000", "")
 	if err != nil {
 		t.Fatalf("runDecoder: %v", err)
 	}
@@ -164,5 +166,89 @@ func TestParseAntennaMarker(t *testing.T) {
 	mono := d.parse("134630 -18  0.1 1246 ~  HB9ETH N4MA EM60\n", ch, "260927_134630")
 	if len(mono) != 1 || mono[0].Ant != "" || strings.Contains(mono[0].String(), " A ") {
 		t.Fatalf("mono spot should have no antenna tag: ant=%q str=%q", mono[0].Ant, mono[0].String())
+	}
+}
+
+// TestParseFcfbfarmSection: the [fcfbfarm] section fills cfg.SaveWav, is optional
+// (default ""), and rejects unknown keys.
+func TestParseFcfbfarmSection(t *testing.T) {
+	base := "[decoder]\nname=ft8\ncmd=jt9 --ft8 {wav}\nparser=jt9\nperiod=15\ncapture=13.5\n" +
+		"[channel]\nfc=7.074e6\ndecoder=ft8\n"
+	write := func(body string) string {
+		p := filepath.Join(t.TempDir(), "farm.ini")
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	cfg, err := parseConfig(write("[board]\nreplay=x.bin\n" + base +
+		"[fcfbfarm]\nsavewav = ~/fcfb/{date}/{channel}/{antenna}-{timestamp}.wav\n"))
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+	if want := "~/fcfb/{date}/{channel}/{antenna}-{timestamp}.wav"; cfg.SaveWav != want {
+		t.Fatalf("SaveWav = %q, want %q", cfg.SaveWav, want)
+	}
+
+	// Optional: absent section -> empty (temp-WAV behaviour).
+	if cfg, err = parseConfig(write("[board]\nreplay=x.bin\n" + base)); err != nil || cfg.SaveWav != "" {
+		t.Fatalf("no [fcfbfarm]: SaveWav=%q err=%v, want \"\" nil", cfg.SaveWav, err)
+	}
+
+	// Unknown key is rejected.
+	if _, err = parseConfig(write("[board]\nreplay=x.bin\n" + base + "[fcfbfarm]\nbogus = 1\n")); err == nil {
+		t.Fatal("expected error for unknown [fcfbfarm] key")
+	}
+}
+
+// TestExpandSaveWav checks each {placeholder} in a [fcfbfarm] savewav= template,
+// the fast/slow {timestamp} forms, the A/B/AB {antenna} mapping, and ~ expansion.
+func TestExpandSaveWav(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	ft8 := Decoder{Name: "ft8", PeriodS: 15, CaptureS: 13.5}
+	wspr := Decoder{Name: "wspr", PeriodS: 120, CaptureS: 114}
+	tmpl := "/data/{date}/{channel}/{antenna}-{frequency}-{decoder}-{timestamp}.wav"
+
+	got, err := expandSaveWav(tmpl, Channel{FcHz: 14.074e6, Name: "20mF8", Adc: 1}, ft8, "260927_183015", false)
+	if err != nil {
+		t.Fatalf("expandSaveWav (fast): %v", err)
+	}
+	if want := "/data/20260927/20mF8/A-14074000-ft8-20260927_183015.wav"; got != want {
+		t.Fatalf("fast: got %q, want %q", got, want)
+	}
+
+	// Slow mode: {timestamp} drops the seconds (YYYYMMDD_HHMM).
+	got, err = expandSaveWav(tmpl, Channel{FcHz: 7.0386e6, Name: "40mW", Adc: 2}, wspr, "260927_223000", true)
+	if err != nil {
+		t.Fatalf("expandSaveWav (slow): %v", err)
+	}
+	if want := "/data/20260927/40mW/B-7038600-wspr-20260927_2230.wav"; got != want {
+		t.Fatalf("slow: got %q, want %q", got, want)
+	}
+
+	// adc=3 -> {antenna} "AB"; leading ~ -> home dir.
+	got, err = expandSaveWav("~/w/{antenna}.wav", Channel{FcHz: 14.074e6, Name: "x", Adc: 3}, ft8, "260927_183015", false)
+	if err != nil {
+		t.Fatalf("expandSaveWav (~): %v", err)
+	}
+	if want := home + "/w/AB.wav"; got != want {
+		t.Fatalf("~/AB: got %q, want %q", got, want)
+	}
+}
+
+// TestRunDecoderSaveWav: with savewav set, runDecoder writes the WAV to the expanded
+// path and keeps it after the decoder runs (instead of a deleted temp file).
+func TestRunDecoderSaveWav(t *testing.T) {
+	dir := t.TempDir()
+	tmpl := filepath.Join(dir, "{channel}", "{antenna}-{timestamp}.wav")
+	d := Decoder{Name: "ft8", Cmd: "sh -c true", Parser: "jt9", PeriodS: 15, CaptureS: 13.5}
+	_, err := runDecoder([]int16{0, 0, 0, 0}, 1, Channel{FcHz: 7.074e6, Name: "40m", Adc: 1}, d, "260927_183015", tmpl)
+	if err != nil {
+		t.Fatalf("runDecoder: %v", err)
+	}
+	want := filepath.Join(dir, "40m", "A-20260927_183015.wav")
+	if _, serr := os.Stat(want); serr != nil {
+		t.Fatalf("saved WAV %q not kept: %v", want, serr)
 	}
 }

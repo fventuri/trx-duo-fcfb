@@ -572,7 +572,7 @@ func (d *Dispatcher) worker() {
 		} else {
 			pcm = peakNormalizeInt16(j.audio)
 		}
-		out, err := runDecoder(pcm, numCh, j.ch, j.dec, j.utc)
+		out, err := runDecoder(pcm, numCh, j.ch, j.dec, j.utc, d.cfg.SaveWav)
 		if err != nil && out == "" {
 			continue
 		}

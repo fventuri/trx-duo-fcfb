@@ -187,29 +187,56 @@ func (d Decoder) parse(stdout string, ch Channel, utc string) []Spot {
 	return spots
 }
 
-// runDecoder writes the audio to a temp WAV and runs the decoder's command there,
-// returning its stdout.
-func runDecoder(pcm []int16, numCh int, ch Channel, d Decoder, utc string) (string, error) {
+// runDecoder writes the audio to a WAV and runs the decoder's command on it,
+// returning its stdout.  A temp dir is always created to hold the decoder's working
+// directory (jt9/wsprd drop scratch files in cwd).  When saveWav is "" the WAV lives
+// in that temp dir and is deleted on return; when saveWav is set the WAV is written
+// to that expanded path template instead and kept (see expandSaveWav).
+func runDecoder(pcm []int16, numCh int, ch Channel, d Decoder, utc, saveWav string) (string, error) {
 	dir, err := os.MkdirTemp("", "fcfbfarm_")
 	if err != nil {
 		return "", err
 	}
 	defer os.RemoveAll(dir)
-	// Name the WAV for the cycle-start UTC so the file -- and any decoder that reads
-	// its timestamp from the filename -- reflects the real window (not a fixed
-	// 000000_000000).  jt9/wsprd extract the time by offset from ".wav" (jt9.f90,
-	// wsprd.c), and WSJT-X's own convention is YYMMDD_HHMMSS for fast modes and
-	// YYMMDD_HHMM (no seconds) for slow modes (T/R >= 60 s: WSPR, FST4W).  Matching
-	// that makes wsprd read the true HHMM and jt9 take its 4-digit slow-mode branch.
-	stamp := utc
-	if d.PeriodS >= 60 && len(stamp) == len("060102_150405") {
-		stamp = stamp[:len("060102_1504")] // YYMMDD_HHMMSS -> YYMMDD_HHMM
+	// Slow modes (period >= 60 s: WSPR, FST4W) use a seconds-less stamp, matching
+	// WSJT-X's convention (see the temp-WAV branch below).
+	slow := d.PeriodS >= 60
+
+	var wavArg string // the {wav} value handed to the decoder
+	if saveWav != "" {
+		// Persistent WAV: expand the user's [fcfbfarm] savewav= template, create its
+		// parent directory, and write the WAV there.  It is not under dir, so it
+		// survives the defer above -- the file is kept after decoding.
+		p, perr := expandSaveWav(saveWav, ch, d, utc, slow)
+		if perr != nil {
+			return "", perr
+		}
+		if perr := os.MkdirAll(filepath.Dir(p), 0o755); perr != nil {
+			return "", fmt.Errorf("savewav: %w", perr)
+		}
+		if werr := writeWAV(p, d.rate(), numCh, pcm); werr != nil {
+			return "", werr
+		}
+		wavArg = p
+	} else {
+		// Temp WAV, deleted with dir when this returns.  Name it for the cycle-start
+		// UTC so the file -- and any decoder that reads its timestamp from the
+		// filename -- reflects the real window (not a fixed 000000_000000).
+		// jt9/wsprd extract the time by offset from ".wav" (jt9.f90, wsprd.c), and
+		// WSJT-X's own convention is YYMMDD_HHMMSS for fast modes and YYMMDD_HHMM
+		// (no seconds) for slow modes (T/R >= 60 s: WSPR, FST4W).  Matching that
+		// makes wsprd read the true HHMM and jt9 take its 4-digit slow-mode branch.
+		stamp := utc
+		if slow && len(stamp) == len("060102_150405") {
+			stamp = stamp[:len("060102_1504")] // YYMMDD_HHMMSS -> YYMMDD_HHMM
+		}
+		wavArg = stamp + ".wav"
+		if err := writeWAV(filepath.Join(dir, wavArg), d.rate(), numCh, pcm); err != nil {
+			return "", err
+		}
 	}
-	wav := stamp + ".wav"
-	if err := writeWAV(filepath.Join(dir, wav), d.rate(), numCh, pcm); err != nil {
-		return "", err
-	}
-	argv := d.argv(wav, ch, utc)
+
+	argv := d.argv(wavArg, ch, utc)
 	if len(argv) == 0 {
 		return "", fmt.Errorf("decoder %q: empty cmd", d.Name)
 	}
@@ -219,6 +246,40 @@ func runDecoder(pcm []int16, numCh int, ch Channel, d Decoder, utc string) (stri
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	return string(out), err
+}
+
+// expandSaveWav renders a [fcfbfarm] savewav= path template for one decode window.
+// Placeholders (each written {name}): {date} YYYYMMDD, {timestamp} YYYYMMDD_HHMMSS
+// (or YYYYMMDD_HHMM for slow modes), {channel} the channel name, {antenna} A/B/AB
+// (adc 1/2/3), {frequency} the centre frequency in whole Hz (fractions truncated),
+// {decoder} the decoder name.  A leading ~ is expanded to the user's home directory.
+// The window stamp is the same YYMMDD_HHMMSS used elsewhere; its 2-digit year maps
+// to 2000-2069.
+func expandSaveWav(tmpl string, ch Channel, d Decoder, utc string, slow bool) (string, error) {
+	t, err := time.Parse("060102_150405", utc)
+	if err != nil {
+		return "", fmt.Errorf("savewav: bad window stamp %q: %w", utc, err)
+	}
+	tsLayout := "20060102_150405"
+	if slow {
+		tsLayout = "20060102_1504"
+	}
+	path := strings.NewReplacer(
+		"{date}", t.Format("20060102"),
+		"{timestamp}", t.Format(tsLayout),
+		"{channel}", ch.name(),
+		"{antenna}", ch.antenna(),
+		"{frequency}", strconv.FormatInt(int64(ch.FcHz), 10),
+		"{decoder}", d.Name,
+	).Replace(tmpl)
+	if strings.HasPrefix(path, "~") {
+		home, herr := os.UserHomeDir()
+		if herr != nil {
+			return "", fmt.Errorf("savewav: cannot expand ~: %w", herr)
+		}
+		path = home + path[1:]
+	}
+	return path, nil
 }
 
 // writeWAV writes 16-bit PCM. samples are interleaved when numCh > 1 (L,R,L,R...

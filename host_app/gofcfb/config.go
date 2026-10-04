@@ -40,6 +40,14 @@
 //	adc = 1                 # 1=A, 2=B, 3=both (diversity: one stereo WAV, L=A R=B)
 //	bw = 3000               # optional occupied bandwidth (Hz)
 //	name = 40mF8
+//
+//	[fcfbfarm]              # optional; fcfbfarm-only settings
+//	savewav = ~/fcfb/wavs/{date}/{channel}/{antenna}-{timestamp}.wav
+//	                        # if set, each decoder WAV is written to this path
+//	                        # template (and kept, not deleted) instead of a
+//	                        # temp file.  {date} {timestamp} {channel} {antenna}
+//	                        # {frequency} {decoder} are substituted; a leading ~
+//	                        # is the user's home dir.  See expandSaveWav.
 package fcfb
 
 import (
@@ -65,6 +73,19 @@ func (c Channel) name() string {
 	return fmt.Sprintf("%.4f", c.FcHz/1e6)
 }
 
+// antenna is the savewav {antenna} value: "A" (adc 1), "B" (adc 2), "AB" (adc 3,
+// the combined/diversity case).
+func (c Channel) antenna() string {
+	switch c.Adc {
+	case 2:
+		return "B"
+	case 3:
+		return "AB"
+	default:
+		return "A"
+	}
+}
+
 type Config struct {
 	BoardIP         string
 	UDPPort         int
@@ -75,6 +96,7 @@ type Config struct {
 	Replay          string
 	Kernel          string // optional: external synthesis kernel (.f64); default = embedded K=6
 	MonitorInterval int    // board temperature-log poll interval (s); 0 = off
+	SaveWav         string // optional [fcfbfarm] savewav= path template; "" = use a temp WAV (deleted after decode)
 	Decoders        []Decoder
 	Channels        []Channel
 }
@@ -148,6 +170,10 @@ func parseConfig(path string) (Config, error) {
 				return cfg, fmt.Errorf("line %d: key %q before any [decoder]", ln, key)
 			}
 			if err := setDecoder(curDec, key, val); err != nil {
+				return cfg, fmt.Errorf("line %d: %w", ln, err)
+			}
+		case "fcfbfarm":
+			if err := setFcfbfarm(&cfg, key, val); err != nil {
 				return cfg, fmt.Errorf("line %d: %w", ln, err)
 			}
 		default:
@@ -298,4 +324,14 @@ func setDecoder(d *Decoder, k, v string) error {
 		return fmt.Errorf("unknown [decoder] key %q", k)
 	}
 	return err
+}
+
+func setFcfbfarm(c *Config, k, v string) error {
+	switch k {
+	case "savewav":
+		c.SaveWav = v
+	default:
+		return fmt.Errorf("unknown [fcfbfarm] key %q", k)
+	}
+	return nil
 }

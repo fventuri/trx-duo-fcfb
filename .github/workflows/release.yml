@@ -43,10 +43,9 @@ jobs:
           set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE/dist"
 
-          # extras shipped alongside the binaries in every zip
-          EXTRAS="README.md farm.example.ini farm.example.dual.ini hpsdr.example.ini \
-                  allbands.ini allbands-dual.ini allbands-bothadcs.ini allbands-dual-soak.ini \
-                  dd-soak dual-decoder"
+          # extras shipped alongside the binaries in every zip (example configs go
+          # in an examples/ subdir, matching the repo layout the README points to)
+          EXTRAS="README.md dd-soak dual-decoder"
 
           build_zip() {
             local goos="$1" goarch="$2" label="$3" ext="$4"
@@ -57,6 +56,7 @@ jobs:
                 go build -trimpath -ldflags="-s -w" -o "$stage/$cmd$ext" "./cmd/$cmd"
             done
             cp $EXTRAS "$stage/"
+            cp -r examples "$stage/"
             (cd "$stage" && zip -r "$GITHUB_WORKSPACE/dist/$stage.zip" .)
           }
 
