@@ -151,7 +151,7 @@ func (d Decoder) parse(stdout string, ch Channel, utc string) []Spot {
 	var spots []Spot
 	name := ch.name()
 	short := hhmmss(utc) // spot display keeps HHMMSS even though utc is now YYMMDD_HHMMSS
-	ant := ""            // set by "#ANT A"/"#ANT B" marker lines dual-decoder emits per antenna
+	ant := ""            // set by "#ANT A"/"#ANT B" marker lines wav-to-decoder emits per antenna
 	for _, line := range strings.Split(stdout, "\n") {
 		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "#ANT "); ok {
 			ant = strings.TrimSpace(rest)
@@ -187,12 +187,43 @@ func (d Decoder) parse(stdout string, ch Channel, utc string) []Spot {
 	return spots
 }
 
-// runDecoder writes the audio to a WAV and runs the decoder's command on it,
-// returning its stdout.  A temp dir is always created to hold the decoder's working
-// directory (jt9/wsprd drop scratch files in cwd).  When saveWav is "" the WAV lives
-// in that temp dir and is deleted on return; when saveWav is set the WAV is written
-// to that expanded path template instead and kept (see expandSaveWav).
+// runDecoder writes real int16 audio to a WAV and runs the decoder on it.
 func runDecoder(pcm []int16, numCh int, ch Channel, d Decoder, utc, saveWav string) (string, error) {
+	return decodeWAV(ch, d, utc, saveWav, func(path string) error {
+		return writeWAV(path, d.rate(), numCh, pcm)
+	})
+}
+
+// runDecoderIQ writes complex float32 I/Q (with an auxi chunk) to a WAV and runs the
+// decoder on it -- the decoder cmd must route through wav-to-decoder, which converts
+// the I/Q to the audio the decoder reads.  iq is interleaved ([I,Q] single / 4-ch
+// dual); numCh is 2 or 4.
+func runDecoderIQ(iq []float32, numCh int, ch Channel, d Decoder, utc, saveWav string) (string, error) {
+	a := auxiFor(ch, d, utc)
+	return decodeWAV(ch, d, utc, saveWav, func(path string) error {
+		return writeWAVFloat32(path, d.rate(), numCh, iq, a)
+	})
+}
+
+// auxiFor builds the auxi metadata for a window: UTC start (parsed from utc) and stop
+// (start + period), the channel centre frequency and bandwidth, and the file rate.
+func auxiFor(ch Channel, d Decoder, utc string) Auxi {
+	start, _ := time.Parse("060102_150405", utc)
+	return Auxi{
+		Start:    start,
+		Stop:     start.Add(time.Duration(d.PeriodS * float64(time.Second))),
+		CenterHz: uint32(ch.FcHz),
+		ADHz:     uint32(d.rate()),
+		BwHz:     uint32(ch.BwHz),
+	}
+}
+
+// decodeWAV writes one window's WAV via write (int16 audio or float32 I/Q) and runs
+// the decoder on it, returning stdout.  A temp dir is always created for the
+// decoder's working directory (jt9/wsprd drop scratch files in cwd).  When saveWav is
+// "" the WAV lives in that temp dir and is deleted on return; when saveWav is set it
+// is written to the expanded path template instead and kept (see expandSaveWav).
+func decodeWAV(ch Channel, d Decoder, utc, saveWav string, write func(path string) error) (string, error) {
 	dir, err := os.MkdirTemp("", "fcfbfarm_")
 	if err != nil {
 		return "", err
@@ -214,7 +245,7 @@ func runDecoder(pcm []int16, numCh int, ch Channel, d Decoder, utc, saveWav stri
 		if perr := os.MkdirAll(filepath.Dir(p), 0o755); perr != nil {
 			return "", fmt.Errorf("savewav: %w", perr)
 		}
-		if werr := writeWAV(p, d.rate(), numCh, pcm); werr != nil {
+		if werr := write(p); werr != nil {
 			return "", werr
 		}
 		wavArg = p
@@ -231,8 +262,8 @@ func runDecoder(pcm []int16, numCh int, ch Channel, d Decoder, utc, saveWav stri
 			stamp = stamp[:len("060102_1504")] // YYMMDD_HHMMSS -> YYMMDD_HHMM
 		}
 		wavArg = stamp + ".wav"
-		if err := writeWAV(filepath.Join(dir, wavArg), d.rate(), numCh, pcm); err != nil {
-			return "", err
+		if werr := write(filepath.Join(dir, wavArg)); werr != nil {
+			return "", werr
 		}
 	}
 

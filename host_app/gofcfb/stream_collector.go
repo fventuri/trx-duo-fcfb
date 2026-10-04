@@ -64,8 +64,9 @@ type StreamCollector struct {
 
 // newStreamCollector builds one StreamChannel per configured channel that resolves
 // to a granted run, wiring each to the dispatch callback.
-func newStreamCollector(cfg Config, meta Meta, dispatch func(audioL, audioR []float64, utc string, ch Channel, d Decoder)) *StreamCollector {
+func newStreamCollector(cfg Config, meta Meta, dispatch func(audioL, audioR, qA, qB []float64, utc string, ch Channel, d Decoder)) *StreamCollector {
 	sc := &StreamCollector{meta: meta, clock: nowSec, stop: make(chan struct{})}
+	iq := cfg.WavFormat == "iq"
 	for _, ch := range cfg.Channels {
 		kc := roundBin(ch.FcHz)
 		tune := ch.FcHz - float64(kc)*binW
@@ -84,6 +85,7 @@ func newStreamCollector(cfg Config, meta Meta, dispatch func(audioL, audioR []fl
 				continue
 			}
 			st := newStreamChannelDual(ch, dec, kc, tune, kaSubA, kaSubB, 0, dispatch)
+			st.iq = iq
 			sc.feeds = append(sc.feeds, feedCh{sc: st, adc: 3,
 				rowIdx: rowA, col: make([]complex128, len(rowA)),
 				rowIdxR: rowB, colR: make([]complex128, len(rowB))})
@@ -96,6 +98,7 @@ func newStreamCollector(cfg Config, meta Meta, dispatch func(audioL, audioR []fl
 			continue
 		}
 		st := newStreamChannel(ch, dec, kc, tune, adc, kaSub, 0, dispatch)
+		st.iq = iq
 		sc.feeds = append(sc.feeds, feedCh{sc: st, adc: adc, rowIdx: rowIdx, col: make([]complex128, len(rowIdx))})
 	}
 	return sc
@@ -109,7 +112,7 @@ func newStreamCollectorForCfg(cfg Config, meta Meta) *StreamCollector {
 }
 
 // setDispatch wires the dispatch callback into every channel (after construction).
-func (c *StreamCollector) setDispatch(fn func(audioL, audioR []float64, utc string, ch Channel, d Decoder)) {
+func (c *StreamCollector) setDispatch(fn func(audioL, audioR, qA, qB []float64, utc string, ch Channel, d Decoder)) {
 	for _, f := range c.feeds {
 		f.sc.dispatch = fn
 	}

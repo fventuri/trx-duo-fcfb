@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestExampleConfigParses keeps examples/farm.example.ini valid, and confirms the
@@ -31,6 +32,21 @@ func TestExampleConfigParses(t *testing.T) {
 	}
 	if !found {
 		t.Error("no channel references the fst4w120 decoder")
+	}
+}
+
+// TestIQExampleConfigParses keeps examples/farm.example.iq.ini valid and confirms it
+// selects the I/Q WAV format.
+func TestIQExampleConfigParses(t *testing.T) {
+	cfg, err := parseConfig("examples/farm.example.iq.ini")
+	if err != nil {
+		t.Fatalf("parseConfig(examples/farm.example.iq.ini): %v", err)
+	}
+	if cfg.WavFormat != "iq" {
+		t.Fatalf("WavFormat = %q, want iq", cfg.WavFormat)
+	}
+	if cfg.SaveWav == "" {
+		t.Error("iq example should set savewav")
 	}
 }
 
@@ -143,10 +159,10 @@ func TestSpotDisplayStaysHHMMSS(t *testing.T) {
 	}
 }
 
-// TestParseAntennaMarker checks that dual-decoder's "#ANT A"/"#ANT B" markers tag
+// TestParseAntennaMarker checks that wav-to-decoder's "#ANT A"/"#ANT B" markers tag
 // each following spot with its antenna, and that String() shows it (e.g. "20mF8 A").
 func TestParseAntennaMarker(t *testing.T) {
-	d := Decoder{Name: "ft8", Parser: "jt9", Cmd: "dual-decoder jt9 --ft8 {wav}"}
+	d := Decoder{Name: "ft8", Parser: "jt9", Cmd: "wav-to-decoder jt9 --ft8 {wav}"}
 	ch := Channel{FcHz: 14.074e6, Name: "20mF8"}
 	out := "#ANT A\n" +
 		"134630 -18  0.1 1246 ~  HB9ETH N4MA EM60\n" +
@@ -199,6 +215,64 @@ func TestParseFcfbfarmSection(t *testing.T) {
 	// Unknown key is rejected.
 	if _, err = parseConfig(write("[board]\nreplay=x.bin\n" + base + "[fcfbfarm]\nbogus = 1\n")); err == nil {
 		t.Fatal("expected error for unknown [fcfbfarm] key")
+	}
+
+	// wav_format: default audio, accepts iq, rejects anything else.
+	if cfg, err = parseConfig(write("[board]\nreplay=x.bin\n" + base)); err != nil || cfg.WavFormat != "audio" {
+		t.Fatalf("default wav_format=%q err=%v, want audio nil", cfg.WavFormat, err)
+	}
+	if cfg, err = parseConfig(write("[board]\nreplay=x.bin\n" + base + "[fcfbfarm]\nwav_format = iq\n")); err != nil || cfg.WavFormat != "iq" {
+		t.Fatalf("wav_format=iq -> %q err=%v", cfg.WavFormat, err)
+	}
+	if _, err = parseConfig(write("[board]\nreplay=x.bin\n" + base + "[fcfbfarm]\nwav_format = int24\n")); err == nil {
+		t.Fatal("expected error for invalid wav_format")
+	}
+}
+
+// TestInterleaveF32 checks channel-minor interleave with a short-channel guard.
+func TestInterleaveF32(t *testing.T) {
+	got := interleaveF32([]float64{1, 2}, []float64{3, 4}) // single-ADC [I,Q]
+	want := []float32{1, 3, 2, 4}
+	if len(got) != 4 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] {
+		t.Fatalf("interleave 2ch = %v, want %v", got, want)
+	}
+	// 4 channels, one short -> truncate to the min length (1 frame).
+	g4 := interleaveF32([]float64{1, 9}, []float64{2}, []float64{3, 9}, []float64{4})
+	if len(g4) != 4 || g4[0] != 1 || g4[1] != 2 || g4[2] != 3 || g4[3] != 4 {
+		t.Fatalf("interleave 4ch (short) = %v, want [1 2 3 4]", g4)
+	}
+}
+
+// TestRunDecoderIQSaveWav: iq mode writes a float32 WAV (with auxi) to the savewav
+// path, keeps it, and it reads back with the right format, channels and metadata.
+func TestRunDecoderIQSaveWav(t *testing.T) {
+	dir := t.TempDir()
+	tmpl := filepath.Join(dir, "{antenna}-{timestamp}.wav")
+	d := Decoder{Name: "ft8", Cmd: "sh -c true", Parser: "jt9", PeriodS: 15, CaptureS: 13.5}
+	ch := Channel{FcHz: 7074000, Name: "40m", Adc: 1, BwHz: 3000}
+	iq := []float32{0.1, 0.3, 0.2, 0.4} // [I0,Q0,I1,Q1]
+	if _, err := runDecoderIQ(iq, 2, ch, d, "260927_183015", tmpl); err != nil {
+		t.Fatalf("runDecoderIQ: %v", err)
+	}
+	want := filepath.Join(dir, "A-20260927_183015.wav")
+	wd, err := ReadWAV(want)
+	if err != nil {
+		t.Fatalf("saved I/Q WAV not readable at %q: %v", want, err)
+	}
+	if wd.FormatTag != wavFmtFloat || wd.NumCh != 2 || wd.Rate != 12000 {
+		t.Fatalf("header: tag=%d ch=%d rate=%d", wd.FormatTag, wd.NumCh, wd.Rate)
+	}
+	for i := range iq {
+		if wd.F32[i] != iq[i] {
+			t.Fatalf("sample %d = %v, want %v", i, wd.F32[i], iq[i])
+		}
+	}
+	if wd.Auxi == nil || wd.Auxi.CenterHz != 7074000 || wd.Auxi.BwHz != 3000 || wd.Auxi.ADHz != 12000 {
+		t.Fatalf("auxi = %+v", wd.Auxi)
+	}
+	wantStart := time.Date(2026, 9, 27, 18, 30, 15, 0, time.UTC)
+	if !wd.Auxi.Start.Equal(wantStart) || !wd.Auxi.Stop.Equal(wantStart.Add(15*time.Second)) {
+		t.Fatalf("auxi times: start=%v stop=%v", wd.Auxi.Start, wd.Auxi.Stop)
 	}
 }
 

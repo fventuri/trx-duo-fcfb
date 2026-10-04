@@ -64,6 +64,40 @@ modes WSPR/FST4W), `{channel}`, `{antenna}` `A`/`B`/`AB` (adc 1/2/3),
 `{frequency}` (whole Hz, e.g. `10000000`), `{decoder}`; a leading `~` is the
 user's home.
 
+### I/Q output (`wav_format = iq`)
+
+By default the farm writes real int16 audio. Set `wav_format = iq` in `[fcfbfarm]`
+to write complex **float32** I/Q instead — the raw channel baseband, for diversity
+/ offline DSP. `wav_format` is orthogonal to `savewav` (format vs keep/path). The
+format is self-describing:
+
+- **WAVE format tag `3`** (IEEE float32), **12 kHz** complex, **un-normalised** —
+  preserving absolute and inter-antenna amplitude/phase.
+- **Channels:** single ADC → 2 ch `[I, Q]`; dual ADC (`adc=3`) → 4 ch
+  `[I_A, Q_A, I_B, Q_B]` (antenna-major, I before Q).
+- **Baseband** centred at the channel `fc` (0 Hz = dial); a tone above `fc` is a
+  positive frequency. The I channel equals `real(I/Q)` = the audio the real-audio
+  path would produce.
+- **`auxi` chunk** (RFSpace/SpectraVue SDR convention), after `fmt ` and before
+  `data`: `StartTime`/`StopTime` (Win32 `SYSTEMTIME`, 16 B each, **UTC** window
+  bounds), then DWORDs `CenterFreq` (fc, Hz), `ADFrequency` (file rate, Hz),
+  `IFFrequency` (0), `Bandwidth` (channel bw, Hz), `IQOffset` (0) and four unused.
+
+Because jt9/wsprd read mono real audio, an I/Q decoder `cmd` must route through
+`wav-to-decoder` (below). See `examples/farm.example.iq.ini`.
+
+### `wav-to-decoder`
+
+`wav-to-decoder` runs a WSJT-X-style decoder on a WAV the farm wrote, in either
+format, **autodetecting** from the header: PCM int16 1 ch → mono passthrough; PCM
+int16 2 ch → split L/R and decode each (emitting `#ANT A`/`#ANT B`); float32 2 ch →
+decode `I`; float32 4 ch → decode `I_A` and `I_B` (`#ANT A`/`#ANT B`). It extracts
+the mono audio, peak-normalises it, writes a temp WAV named for the window
+(`auxi StartTime`, HHMM vs HHMMSS from the window length), and runs the decoder.
+Use it as the decoder `cmd` (`wav-to-decoder jt9 --ft8 {wav}`) or by hand on a saved
+file; `--iq` / `--audio` force the interpretation. It replaces the old
+`dual-decoder` (and handles the dual-audio case too).
+
 Offline decode of a captured v3 stream (for testing, no board): set
 `replay = capture.bin` in `[board]` — it decodes every channel from that one
 window and exits. Verified bit-for-message-identical to `python3 farm.py --replay`.

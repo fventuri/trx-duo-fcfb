@@ -315,7 +315,11 @@ type StreamChannel struct {
 	t0       float64 // shared anchor: UTC = t0 + blk/binRate
 	period   float64 // window period (s)
 	capture  float64 // window capture length (s)
-	dispatch func(audioL, audioR []float64, utc string, ch Channel, d Decoder)
+	dispatch func(audioL, audioR, qA, qB []float64, utc string, ch Channel, d Decoder)
+
+	// iq: also resample the imaginary part so the window is dispatched as complex
+	// I/Q (qA/qB) instead of real audio.  Set from cfg.WavFormat == "iq".
+	iq bool
 
 	// dual (adc=3) diversity: second chain on ADC B, same kc/tune.
 	dual   bool
@@ -332,6 +336,10 @@ type StreamChannel struct {
 	synthR  *StreamSynth     // dual: ADC B chain
 	rsmpR   *StreamResampler // dual
 	audioR  []float64        // dual
+	rsmpQ   *StreamResampler // iq: imaginary (Q) resampler, ADC A
+	audioQ  []float64        // iq: Q samples, ADC A
+	rsmpQR  *StreamResampler // iq+dual: Q resampler, ADC B
+	audioQR []float64        // iq+dual: Q samples, ADC B
 	zero    []complex128     // reusable zero column for gap fill (ADC A)
 	zeroR   []complex128     // reusable zero column for gap fill (ADC B, dual)
 
@@ -344,7 +352,7 @@ type StreamChannel struct {
 }
 
 func newStreamChannel(ch Channel, dec Decoder, kc int, tune float64, adc int, kaSub []int,
-	t0 float64, dispatch func(audioL, audioR []float64, utc string, ch Channel, d Decoder)) *StreamChannel {
+	t0 float64, dispatch func(audioL, audioR, qA, qB []float64, utc string, ch Channel, d Decoder)) *StreamChannel {
 	return &StreamChannel{
 		ch: ch, dec: dec, kc: kc, tune: tune, adc: adc, kaSub: kaSub,
 		t0: t0, period: dec.PeriodS, capture: dec.CaptureS, dispatch: dispatch,
@@ -356,7 +364,7 @@ func newStreamChannel(ch Channel, dec Decoder, kc int, tune float64, adc int, ka
 // ADC B on kaSubB, same bin kc and fine tune.  finalize hands the worker both
 // audio streams for one stereo WAV.
 func newStreamChannelDual(ch Channel, dec Decoder, kc int, tune float64, kaSubA, kaSubB []int,
-	t0 float64, dispatch func(audioL, audioR []float64, utc string, ch Channel, d Decoder)) *StreamChannel {
+	t0 float64, dispatch func(audioL, audioR, qA, qB []float64, utc string, ch Channel, d Decoder)) *StreamChannel {
 	return &StreamChannel{
 		ch: ch, dec: dec, kc: kc, tune: tune, adc: 3, kaSub: kaSubA,
 		dual: true, kaSubR: kaSubB,
@@ -435,6 +443,7 @@ func (s *StreamChannel) reset() {
 	s.active = false
 	s.synth, s.rsmp, s.audio = nil, nil, nil
 	s.synthR, s.rsmpR, s.audioR = nil, nil, nil
+	s.rsmpQ, s.audioQ, s.rsmpQR, s.audioQR = nil, nil, nil, nil
 }
 
 func (s *StreamChannel) start(wi, m0, m1 int64) {
@@ -443,10 +452,18 @@ func (s *StreamChannel) start(wi, m0, m1 int64) {
 	s.synth = newStreamSynth(s.kaSub, s.kc, s.tune)
 	s.rsmp = newStreamResampler(binRate, s.dec.rate())
 	s.audio = s.audio[:0]
+	if s.iq {
+		s.rsmpQ = newStreamResampler(binRate, s.dec.rate())
+		s.audioQ = s.audioQ[:0]
+	}
 	if s.dual {
 		s.synthR = newStreamSynth(s.kaSubR, s.kc, s.tune)
 		s.rsmpR = newStreamResampler(binRate, s.dec.rate())
 		s.audioR = s.audioR[:0]
+		if s.iq {
+			s.rsmpQR = newStreamResampler(binRate, s.dec.rate())
+			s.audioQR = s.audioQR[:0]
+		}
 	}
 }
 
@@ -456,9 +473,15 @@ func (s *StreamChannel) start(wi, m0, m1 int64) {
 func (s *StreamChannel) feed(colA, colB []complex128) {
 	bb := s.synth.push(colA)
 	s.rsmp.push(real(bb), &s.audio)
+	if s.iq {
+		s.rsmpQ.push(imag(bb), &s.audioQ) // Q = imag(bb); I is the real audio above
+	}
 	if s.dual {
 		bbR := s.synthR.push(colB)
 		s.rsmpR.push(real(bbR), &s.audioR)
+		if s.iq {
+			s.rsmpQR.push(imag(bbR), &s.audioQR)
+		}
 	}
 	s.nextBlk++
 }
@@ -469,10 +492,18 @@ func (s *StreamChannel) finalize() {
 	}
 	s.rsmp.flush(&s.audio)
 	audio := s.audio // hand ownership to the worker; peak-normalise off the ingest thread
-	var audioR []float64
+	var audioR, qA, qB []float64
+	if s.iq {
+		s.rsmpQ.flush(&s.audioQ)
+		qA = s.audioQ // non-nil qA signals I/Q mode to the worker
+	}
 	if s.dual {
 		s.rsmpR.flush(&s.audioR)
 		audioR = s.audioR
+		if s.iq {
+			s.rsmpQR.flush(&s.audioQR)
+			qB = s.audioQR
+		}
 	}
 	start := float64(s.curWi) * s.period
 	// Full window-start stamp YYMMDD_HHMMSS (e.g. 260927_183000): used verbatim for
@@ -481,8 +512,9 @@ func (s *StreamChannel) finalize() {
 	s.active = false
 	s.synth, s.rsmp, s.audio = nil, nil, nil
 	s.synthR, s.rsmpR, s.audioR = nil, nil, nil
+	s.rsmpQ, s.audioQ, s.rsmpQR, s.audioQR = nil, nil, nil, nil
 	if s.dispatch != nil {
-		s.dispatch(audio, audioR, utc, s.ch, s.dec)
+		s.dispatch(audio, audioR, qA, qB, utc, s.ch, s.dec)
 	}
 }
 
@@ -535,8 +567,10 @@ func channelRows(cap *Captured, kc, adc int) (rowIdx, kaSub []int, S [][]complex
 // overload).  Replay blocks on submit so the offline diff is lossless.
 
 type winJob struct {
-	audio  []float64 // ADC A / left
+	audio  []float64 // ADC A / left (real audio, or I of ADC A in iq mode)
 	audioR []float64 // dual (adc=3): ADC B / right; nil for mono
+	qA     []float64 // iq mode: Q of ADC A; nil in audio mode (the mode flag)
+	qB     []float64 // iq + dual: Q of ADC B
 	utc    string
 	ch     Channel
 	dec    Decoder
@@ -563,16 +597,34 @@ func newDispatcher(cfg Config, block bool, queueDepth int) *Dispatcher {
 func (d *Dispatcher) worker() {
 	defer d.wg.Done()
 	for j := range d.jobs {
-		// off the ingest thread: peak-normalise, then one mono or stereo WAV.
-		var pcm []int16
-		numCh := 1
-		if j.audioR != nil {
-			pcm = peakNormalizeStereoInt16(j.audio, j.audioR) // L=ADC A, R=ADC B
-			numCh = 2
+		// off the ingest thread: build this window's WAV and run the decoder.
+		var out string
+		var err error
+		if j.qA != nil {
+			// I/Q mode: interleave raw (un-normalised) float32 -- [I,Q] for a single
+			// ADC, [I_A,Q_A,I_B,Q_B] for dual -- preserving inter-antenna amplitude
+			// and phase.  Decode routes through wav-to-decoder (in the cmd).
+			var iq []float32
+			numCh := 2
+			if j.audioR != nil {
+				iq = interleaveF32(j.audio, j.qA, j.audioR, j.qB)
+				numCh = 4
+			} else {
+				iq = interleaveF32(j.audio, j.qA)
+			}
+			out, err = runDecoderIQ(iq, numCh, j.ch, j.dec, j.utc, d.cfg.SaveWav)
 		} else {
-			pcm = peakNormalizeInt16(j.audio)
+			// Audio mode: peak-normalise to one mono or stereo int16 WAV.
+			var pcm []int16
+			numCh := 1
+			if j.audioR != nil {
+				pcm = peakNormalizeStereoInt16(j.audio, j.audioR) // L=ADC A, R=ADC B
+				numCh = 2
+			} else {
+				pcm = peakNormalizeInt16(j.audio)
+			}
+			out, err = runDecoder(pcm, numCh, j.ch, j.dec, j.utc, d.cfg.SaveWav)
 		}
-		out, err := runDecoder(pcm, numCh, j.ch, j.dec, j.utc, d.cfg.SaveWav)
 		if err != nil && out == "" {
 			continue
 		}
@@ -582,8 +634,8 @@ func (d *Dispatcher) worker() {
 	}
 }
 
-func (d *Dispatcher) submit(audio, audioR []float64, utc string, ch Channel, dec Decoder) {
-	job := winJob{audio: audio, audioR: audioR, utc: utc, ch: ch, dec: dec}
+func (d *Dispatcher) submit(audio, audioR, qA, qB []float64, utc string, ch Channel, dec Decoder) {
+	job := winJob{audio: audio, audioR: audioR, qA: qA, qB: qB, utc: utc, ch: ch, dec: dec}
 	if d.block {
 		d.jobs <- job
 		return

@@ -48,6 +48,9 @@
 //	                        # temp file.  {date} {timestamp} {channel} {antenna}
 //	                        # {frequency} {decoder} are substituted; a leading ~
 //	                        # is the user's home dir.  See expandSaveWav.
+//	wav_format = audio      # audio (int16 real, default) or iq (float32 complex
+//	                        # baseband: 2ch [I,Q] single-ADC, 4ch [I_A,Q_A,I_B,Q_B]
+//	                        # dual).  iq requires a wav-to-decoder cmd.
 package fcfb
 
 import (
@@ -97,13 +100,14 @@ type Config struct {
 	Kernel          string // optional: external synthesis kernel (.f64); default = embedded K=6
 	MonitorInterval int    // board temperature-log poll interval (s); 0 = off
 	SaveWav         string // optional [fcfbfarm] savewav= path template; "" = use a temp WAV (deleted after decode)
+	WavFormat       string // [fcfbfarm] wav_format: "audio" (int16, default) or "iq" (float32 complex)
 	Decoders        []Decoder
 	Channels        []Channel
 }
 
 func defaultConfig() Config {
 	return Config{UDPPort: 55055, Guard: guardDef, Workers: 8, ReconWorkers: 1, MTU: 0,
-		MonitorInterval: monitorIntervalDef}
+		MonitorInterval: monitorIntervalDef, WavFormat: "audio"}
 }
 
 // decoder looks up a [decoder] by name.
@@ -330,6 +334,12 @@ func setFcfbfarm(c *Config, k, v string) error {
 	switch k {
 	case "savewav":
 		c.SaveWav = v
+	case "wav_format":
+		lv := strings.ToLower(v)
+		if lv != "audio" && lv != "iq" {
+			return fmt.Errorf("wav_format must be audio or iq (got %q)", v)
+		}
+		c.WavFormat = lv
 	default:
 		return fmt.Errorf("unknown [fcfbfarm] key %q", k)
 	}

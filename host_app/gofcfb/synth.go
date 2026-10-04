@@ -211,6 +211,27 @@ func peakNormalizeStereoInt16(l, r []float64) []int16 {
 	return out
 }
 
+// interleaveF32 interleaves equal-length channel streams into one float32 buffer
+// (channel-minor): out[i*n+c] = chans[c][i].  Used to build the farm's I/Q WAV --
+// [I,Q] for a single ADC, [I_A,Q_A,I_B,Q_B] for dual -- with no normalisation, so
+// inter-antenna amplitude and phase are preserved.
+func interleaveF32(chans ...[]float64) []float32 {
+	nc := len(chans)
+	n := len(chans[0])
+	for _, c := range chans {
+		if len(c) < n {
+			n = len(c) // equal by construction; guard a truncated flush
+		}
+	}
+	out := make([]float32, n*nc)
+	for i := 0; i < n; i++ {
+		for c := 0; c < nc; c++ {
+			out[i*nc+c] = float32(chans[c][i])
+		}
+	}
+	return out
+}
+
 // resamplePoly is an efficient rational resampler (upfirdn without materialising
 // the zero-stuffed signal): y[n] = sum_j h[n*down - up*j] * x[j].
 func resamplePoly(x []float64, up, down int) []float64 {

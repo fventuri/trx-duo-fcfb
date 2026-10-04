@@ -162,7 +162,7 @@ func TestStreamChannelWindowCut(t *testing.T) {
 	cap := makeWindow(100, 5, 2400, 5) // spans windows 0,1,2 plus dead zones
 
 	var got [][]int16
-	disp := func(audio, _ []float64, utc string, ch Channel, d Decoder) {
+	disp := func(audio, _, _, _ []float64, utc string, ch Channel, d Decoder) {
 		got = append(got, peakNormalizeInt16(audio))
 	}
 	_, kaSub, _, ok := channelRows(cap, kc, 1)
@@ -237,7 +237,7 @@ func TestStreamReplayMatchesBatch(t *testing.T) {
 		t.Fatal("channelRows failed on fixture")
 	}
 	var got []int16
-	disp := func(audio, _ []float64, utc string, ch Channel, d Decoder) { got = peakNormalizeInt16(audio) }
+	disp := func(audio, _, _, _ []float64, utc string, ch Channel, d Decoder) { got = peakNormalizeInt16(audio) }
 	dur := float64(cap.Nb)/binRate + 1
 	sc := newStreamChannel(Channel{}, Decoder{}, kc, tune, adc, kaSub, 0, disp)
 	sc.period, sc.capture = dur, dur
@@ -276,7 +276,7 @@ func fastCollector(cap *Captured, kc int, tune, period, capture float64) (*Strea
 			{FcHz: float64(kc)*binW + tune, Decoder: "ft4", Adc: 1, Name: "x"},
 		}}
 	got := &[][]int16{}
-	disp := func(audio, _ []float64, utc string, ch Channel, d Decoder) {
+	disp := func(audio, _, _, _ []float64, utc string, ch Channel, d Decoder) {
 		*got = append(*got, peakNormalizeInt16(audio))
 	}
 	col := newStreamCollector(cfg, meta, disp)
@@ -465,7 +465,7 @@ func TestStreamDualChannelSync(t *testing.T) {
 	}
 	type win struct{ l, r []float64 }
 	var got []win
-	disp := func(audioL, audioR []float64, utc string, ch Channel, d Decoder) {
+	disp := func(audioL, audioR, _, _ []float64, utc string, ch Channel, d Decoder) {
 		got = append(got, win{append([]float64(nil), audioL...), append([]float64(nil), audioR...)})
 	}
 	col := newStreamCollector(cfg, meta, disp)
@@ -584,7 +584,7 @@ func TestStreamChannelRate48k(t *testing.T) {
 		t.Fatal("channelRows failed")
 	}
 	var got []int16
-	disp := func(audio, _ []float64, utc string, ch Channel, d Decoder) { got = peakNormalizeInt16(audio) }
+	disp := func(audio, _, _, _ []float64, utc string, ch Channel, d Decoder) { got = peakNormalizeInt16(audio) }
 	dur := float64(cap.Nb)/binRate + 1
 	dec := Decoder{Name: "x", Rate: rate, PeriodS: dur, CaptureS: dur}
 	sc := newStreamChannel(Channel{}, dec, kc, tune, 1, kaSub, 0, disp)

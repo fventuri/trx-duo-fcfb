@@ -178,6 +178,7 @@ func runReplay(cfg Config) error {
 			}
 			sc := newStreamChannelDual(ch, dec, kc, tune, kaSubA, kaSubB, 0, disp.submit)
 			sc.period, sc.capture = dur, dur
+			sc.iq = cfg.WavFormat == "iq"
 			feeders = append(feeders, feeder{sc: sc, rowIdx: rowA, S: SA, col: make([]complex128, len(rowA)),
 				rowIdxR: rowB, SR: SB, colR: make([]complex128, len(rowB))})
 			continue
@@ -188,6 +189,7 @@ func runReplay(cfg Config) error {
 		}
 		sc := newStreamChannel(ch, dec, kc, tune, adc, kaSub, 0, disp.submit)
 		sc.period, sc.capture = dur, dur
+		sc.iq = cfg.WavFormat == "iq"
 		feeders = append(feeders, feeder{sc: sc, rowIdx: rowIdx, S: S, col: make([]complex128, len(rowIdx))})
 	}
 	for blk := 0; blk < cap.Nb; blk++ {

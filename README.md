@@ -58,6 +58,10 @@ TRX-duo, **xc7z010clg400-1** (Zynq-7010). The SD-card image is built as a second
 Full documentation — architecture, signal flow, the board image, the host apps, and
 the wire protocol — is published at <https://fventuri.github.io/trx-duo-fcfb/>.
 
+The complex-I/Q WAV output of `fcfbfarm` (format, channel layout, filename
+convention, and the `auxi` metadata chunk) is specified in
+[`docs/iq-format.md`](docs/iq-format.md).
+
 ## Contributing
 
 Pull requests are not accepted; instead, please open an issue for any bug, change,

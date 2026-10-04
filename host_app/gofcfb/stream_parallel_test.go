@@ -79,7 +79,7 @@ type recorder struct {
 	recs []string
 }
 
-func (rc *recorder) dispatch(audioL, audioR []float64, utc string, ch Channel, d Decoder) {
+func (rc *recorder) dispatch(audioL, audioR, _, _ []float64, utc string, ch Channel, d Decoder) {
 	s := winRec(audioL, audioR, utc, ch)
 	rc.mu.Lock()
 	rc.recs = append(rc.recs, s)
