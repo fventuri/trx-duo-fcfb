@@ -4,12 +4,16 @@ name: Release
 # covering the host zips and the board SD-card image.
 #
 # How to cut a release:
-#   1. Build the board image locally (buildroot/build-fcfb.sh -> sdcard.img).
-#   2. Create a release for the tag (e.g. v1.0.0) and upload sdcard.img to it.
-#   3. Publish the release. This workflow then cross-compiles the three host
-#      binaries, zips them (Linux / Windows / macOS), downloads the sdcard.img
-#      you attached, writes SHA256SUMS.txt over the image + zips, and uploads
-#      the zips and SHA256SUMS.txt back to the release.
+#   1. If the board image changed: build it locally
+#      (buildroot/build-fcfb.sh -> sdcard.img) and upload sdcard.img to the
+#      release.  For a host-only release you can skip this — the workflow carries
+#      the sdcard.img forward from the most recent prior release that has one, so
+#      every release ships a board image.
+#   2. Create the release for the tag (e.g. v1.0.0) and publish it.  This workflow
+#      then cross-compiles the three host binaries, zips them (Linux / Windows /
+#      macOS), ensures an sdcard.img is present (attached or carried forward),
+#      writes SHA256SUMS.txt over the image + zips, and uploads the zips,
+#      SHA256SUMS.txt (and any carried-forward image) back to the release.
 
 on:
   release:
@@ -66,12 +70,33 @@ jobs:
 
           ls -l "$GITHUB_WORKSPACE/dist"
 
-      - name: Fetch the board SD-card image from the release
+      - name: Ensure the release has a board SD-card image
         working-directory: dist
         run: |
           set -euo pipefail
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.img' --dir . \
-            || echo "No *.img attached to $TAG yet — SHA256SUMS will cover the host zips only."
+          # Every release ships an sdcard.img so users can download the board image
+          # from any release, even one that only changed host code.  Prefer an image
+          # attached to this tag; otherwise carry forward the most recent prior
+          # release that has one and attach it to this release too.
+          if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'sdcard.img' --dir . 2>/dev/null; then
+            echo "Using sdcard.img attached to $TAG."
+          else
+            echo "$TAG has no sdcard.img — carrying one forward from a prior release."
+            found=""
+            for t in $(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts \
+                         --limit 100 --json tagName --jq '.[].tagName'); do
+              [ "$t" = "$TAG" ] && continue
+              if gh release download "$t" --repo "$GITHUB_REPOSITORY" --pattern 'sdcard.img' --dir . 2>/dev/null; then
+                found="$t"; break
+              fi
+            done
+            if [ -n "$found" ]; then
+              echo "Carried forward sdcard.img from $found; attaching it to $TAG."
+              gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber sdcard.img
+            else
+              echo "No sdcard.img found on any release — SHA256SUMS will cover host zips only."
+            fi
+          fi
 
       - name: Write SHA256SUMS.txt
         working-directory: dist
