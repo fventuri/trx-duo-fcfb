@@ -51,6 +51,12 @@
 //	wav_format = audio      # audio (int16 real, default) or iq (float32 complex
 //	                        # baseband: 2ch [I,Q] single-ADC, 4ch [I_A,Q_A,I_B,Q_B]
 //	                        # dual).  iq requires a wav-to-decoder cmd.
+//	process_only_active_cycle = no
+//	                        # no (default): reconstruct, capture, decode and save the
+//	                        # whole period (15 s FT8, 2 m WSPR) -- the saved WAV spans
+//	                        # the cycle edge-to-edge with no sample gaps.  yes: process
+//	                        # only each decoder's capture= window (the trimmed, lower-
+//	                        # cost behaviour).  Accepts yes/y/true/1 or no/n/false/0.
 package fcfb
 
 import (
@@ -90,19 +96,20 @@ func (c Channel) antenna() string {
 }
 
 type Config struct {
-	BoardIP         string
-	UDPPort         int
-	Guard           int
-	Workers         int
-	ReconWorkers    int // parallel reconstruction groups (1 = single-threaded ingest)
-	MTU             int
-	Replay          string
-	Kernel          string // optional: external synthesis kernel (.f64); default = embedded K=6
-	MonitorInterval int    // board temperature-log poll interval (s); 0 = off
-	SaveWav         string // optional [fcfbfarm] savewav= path template; "" = use a temp WAV (deleted after decode)
-	WavFormat       string // [fcfbfarm] wav_format: "audio" (int16, default) or "iq" (float32 complex)
-	Decoders        []Decoder
-	Channels        []Channel
+	BoardIP                string
+	UDPPort                int
+	Guard                  int
+	Workers                int
+	ReconWorkers           int // parallel reconstruction groups (1 = single-threaded ingest)
+	MTU                    int
+	Replay                 string
+	Kernel                 string // optional: external synthesis kernel (.f64); default = embedded K=6
+	MonitorInterval        int    // board temperature-log poll interval (s); 0 = off
+	SaveWav                string // optional [fcfbfarm] savewav= path template; "" = use a temp WAV (deleted after decode)
+	WavFormat              string // [fcfbfarm] wav_format: "audio" (int16, default) or "iq" (float32 complex)
+	ProcessOnlyActiveCycle bool   // [fcfbfarm] process_only_active_cycle: false (default) = whole period; true = decoder capture window only
+	Decoders               []Decoder
+	Channels               []Channel
 }
 
 func defaultConfig() Config {
@@ -340,8 +347,26 @@ func setFcfbfarm(c *Config, k, v string) error {
 			return fmt.Errorf("wav_format must be audio or iq (got %q)", v)
 		}
 		c.WavFormat = lv
+	case "process_only_active_cycle":
+		b, err := parseConfigBool(v)
+		if err != nil {
+			return err
+		}
+		c.ProcessOnlyActiveCycle = b
 	default:
 		return fmt.Errorf("unknown [fcfbfarm] key %q", k)
 	}
 	return nil
+}
+
+// parseConfigBool parses a config boolean: yes/y/true/1 (true) or no/n/false/0
+// (false), case-insensitive.  Any other value is an error.
+func parseConfigBool(v string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "yes", "y", "true", "1":
+		return true, nil
+	case "no", "n", "false", "0":
+		return false, nil
+	}
+	return false, fmt.Errorf("expected a boolean (yes/y/true/1 or no/n/false/0), got %q", v)
 }

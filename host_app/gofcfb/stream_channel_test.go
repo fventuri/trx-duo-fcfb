@@ -204,6 +204,37 @@ func TestStreamChannelWindowCut(t *testing.T) {
 	}
 }
 
+// TestStreamChannelWindowContiguous checks the process_only_active_cycle=false
+// path (capture == period): consecutive windows must tile the block axis with no
+// gap and no overlap, so every block falls inside exactly one capture window and
+// window wi ends on the exact block where wi+1 begins.
+func TestStreamChannelWindowContiguous(t *testing.T) {
+	const period, capture = 0.02, 0.02 // 800-block period, no dead time
+	const kc, tune = 102, 137.5
+	sc := newStreamChannel(Channel{FcHz: 0}, Decoder{}, kc, tune, 1, nil, 0, nil)
+	sc.period, sc.capture = period, capture
+
+	blocksPerWin := int64(period * binRate) // 800
+	for blk := int64(0); blk < 3*blocksPerWin+1; blk++ {
+		wi, m0, m1, in := sc.windowOf(blk)
+		if !in {
+			t.Fatalf("block %d: in=false, but full-period windows leave no dead time", blk)
+		}
+		if want := blk / blocksPerWin; wi != want {
+			t.Fatalf("block %d: window %d, want %d", blk, wi, want)
+		}
+		// The window carrying blk must be contiguous with its successor: this
+		// window's m1 is the next window's m0 (half-open [m0, m1)).
+		nextM0, _ := blockRange(sc.t0, float64(wi+1)*period, capture)
+		if m1 != nextM0 {
+			t.Fatalf("window %d: m1=%d but next m0=%d (gap/overlap)", wi, m1, nextM0)
+		}
+		if blk < m0 || blk >= m1 {
+			t.Fatalf("block %d not within its window [%d,%d)", blk, m0, m1)
+		}
+	}
+}
+
 // TestStreamReplayMatchesBatch: on a real captured fixture, the streaming single-
 // window path must produce audio byte-identical to the batch channelBaseband ->
 // toWav12k for the same channel (this is what runReplay does, minus the

@@ -64,6 +64,17 @@ modes WSPR/FST4W), `{channel}`, `{antenna}` `A`/`B`/`AB` (adc 1/2/3),
 `{frequency}` (whole Hz, e.g. `10000000`), `{decoder}`; a leading `~` is the
 user's home.
 
+### Window length (`process_only_active_cycle`)
+
+By default the farm reconstructs, captures, decodes and saves each **whole
+period** (15 s for FT8, 2 min for WSPR, …), so saved WAVs span the cycle
+edge-to-edge with no sample gaps. Set `process_only_active_cycle = yes` in
+`[fcfbfarm]` to instead process only each decoder's `capture =` window (e.g.
+13.5 s of a 15 s FT8 cycle) — the earlier trimmed behaviour, which costs less CPU
+and writes smaller files but drops the trailing dead time. `capture` is still
+required either way (it's the window used when this is `yes`). Accepts
+`yes`/`y`/`true`/`1` or `no`/`n`/`false`/`0`.
+
 ### I/Q output (`wav_format = iq`)
 
 By default the farm writes real int16 audio. Set `wav_format = iq` in `[fcfbfarm]`

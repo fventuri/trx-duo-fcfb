@@ -227,6 +227,27 @@ func TestParseFcfbfarmSection(t *testing.T) {
 	if _, err = parseConfig(write("[board]\nreplay=x.bin\n" + base + "[fcfbfarm]\nwav_format = int24\n")); err == nil {
 		t.Fatal("expected error for invalid wav_format")
 	}
+
+	// process_only_active_cycle: default false (whole period), accepts the
+	// yes/no spellings, rejects anything else.
+	if cfg, err = parseConfig(write("[board]\nreplay=x.bin\n" + base)); err != nil || cfg.ProcessOnlyActiveCycle {
+		t.Fatalf("default process_only_active_cycle=%v err=%v, want false nil", cfg.ProcessOnlyActiveCycle, err)
+	}
+	for _, v := range []string{"yes", "y", "true", "1", "YES", "True"} {
+		cfg, err = parseConfig(write("[board]\nreplay=x.bin\n" + base + "[fcfbfarm]\nprocess_only_active_cycle = " + v + "\n"))
+		if err != nil || !cfg.ProcessOnlyActiveCycle {
+			t.Fatalf("process_only_active_cycle=%q -> %v err=%v, want true nil", v, cfg.ProcessOnlyActiveCycle, err)
+		}
+	}
+	for _, v := range []string{"no", "n", "false", "0", "NO", "False"} {
+		cfg, err = parseConfig(write("[board]\nreplay=x.bin\n" + base + "[fcfbfarm]\nprocess_only_active_cycle = " + v + "\n"))
+		if err != nil || cfg.ProcessOnlyActiveCycle {
+			t.Fatalf("process_only_active_cycle=%q -> %v err=%v, want false nil", v, cfg.ProcessOnlyActiveCycle, err)
+		}
+	}
+	if _, err = parseConfig(write("[board]\nreplay=x.bin\n" + base + "[fcfbfarm]\nprocess_only_active_cycle = maybe\n")); err == nil {
+		t.Fatal("expected error for invalid process_only_active_cycle")
+	}
 }
 
 // TestInterleaveF32 checks channel-minor interleave with a short-channel guard.

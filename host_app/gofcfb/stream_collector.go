@@ -75,6 +75,12 @@ func newStreamCollector(cfg Config, meta Meta, dispatch func(audioL, audioR, qA,
 			adc = 1
 		}
 		dec, _ := cfg.decoder(ch.Decoder)
+		// Window length: the whole period by default (no trailing sample gap), or
+		// just the decoder's capture= window when process_only_active_cycle is set.
+		captureS := dec.PeriodS
+		if cfg.ProcessOnlyActiveCycle {
+			captureS = dec.CaptureS
+		}
 		if adc == 3 {
 			// Diversity: resolve the bin on BOTH ADCs (requested with AdcBits=3).
 			rowA, kaSubA, okA := resolveChannelRows(meta.Runs, meta.Ka, meta.Kb, kc, 1)
@@ -86,6 +92,7 @@ func newStreamCollector(cfg Config, meta Meta, dispatch func(audioL, audioR, qA,
 			}
 			st := newStreamChannelDual(ch, dec, kc, tune, kaSubA, kaSubB, 0, dispatch)
 			st.iq = iq
+			st.capture = captureS
 			sc.feeds = append(sc.feeds, feedCh{sc: st, adc: 3,
 				rowIdx: rowA, col: make([]complex128, len(rowA)),
 				rowIdxR: rowB, colR: make([]complex128, len(rowB))})
@@ -99,6 +106,7 @@ func newStreamCollector(cfg Config, meta Meta, dispatch func(audioL, audioR, qA,
 		}
 		st := newStreamChannel(ch, dec, kc, tune, adc, kaSub, 0, dispatch)
 		st.iq = iq
+		st.capture = captureS
 		sc.feeds = append(sc.feeds, feedCh{sc: st, adc: adc, rowIdx: rowIdx, col: make([]complex128, len(rowIdx))})
 	}
 	return sc
