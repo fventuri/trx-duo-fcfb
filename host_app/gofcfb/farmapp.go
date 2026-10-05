@@ -27,6 +27,15 @@ func waitForSignal() {
 }
 
 func FarmMain() {
+	// Don't let a vanished stdout consumer kill us. Spot lines go to stdout (often
+	// piped into tee/awk); if that reader dies -- e.g. when `timeout -s INT` signals
+	// the whole pipeline group at the end of a timed run -- Go's default is to
+	// terminate the process on SIGPIPE at fd 1, which would abort graceful shutdown
+	// mid-flush (truncated final WAV, no "streaming done" summary). Ignoring SIGPIPE
+	// turns those writes into harmless EPIPE errors instead, so the drain + stderr
+	// summary still complete. (stderr is typically a file, so it stays writable.)
+	signal.Ignore(syscall.SIGPIPE)
+
 	cfgPath := flag.String("config", "farm.ini", "config file (INI/TOML-style)")
 	cpuprofile := flag.String("cpuprofile", "", "write a CPU profile to this file (until SIGINT)")
 	boardInfo := flag.Bool("board-info", false, "query the board's health (temp/voltages/model) once and exit")
