@@ -34,9 +34,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: host_app/gofcfb/go.mod
           cache: false

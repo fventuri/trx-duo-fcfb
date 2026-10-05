@@ -14,8 +14,8 @@ jobs:
       run:
         working-directory: host_app/gofcfb
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: host_app/gofcfb/go.mod
           cache: false  # zero-dependency module, no go.sum
@@ -37,6 +37,6 @@ jobs:
       run:
         working-directory: host
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: build + run test_budget
         run: make test
