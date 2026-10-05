@@ -56,10 +56,29 @@ Key properties that make it practical:
   int16 at 12 kHz, run the decoder. Only the stream differs, so the comparison is
   apples-to-apples. The result matches decoding `real(C)` in any other tool.
 - **Decoder-agnostic and modulation-agnostic** — it just produces a cleaner audio stream.
-- **No FFT needed.** The formula above is written over STFT bins, but a frequency-flat `β`
-  is mathematically a time-domain complex dot product; the implementation sums
-  `Σ A*·B` and `Σ|A|²` directly over the window's samples (verified equivalent to the STFT
-  estimate to ~1e-6).
+- **Frequency-flat `β`.** The formula above is written over STFT bins, but a frequency-flat
+  `β` is mathematically a time-domain complex dot product; with `--trim 0` the implementation
+  sums `Σ A*·B` and `Σ|A|²` directly over the window's samples with no FFT (verified
+  equivalent to the STFT estimate to ~1e-6). The default estimate excludes signal cells and
+  uses a light STFT — see below.
+
+### Keeping `β` on the noise — signal-excluded `β` (`--trim`, default `0.05`)
+
+`β` is a least-squares fit, so it is captured by whatever carries the most energy in the
+window. On quiet bands that is the common-mode noise (ideal — `β` nulls it), but on a band
+where one antenna carries a **strong wanted signal** (40 m, 80 m, 12 m) the *signal* dominates
+the sum, so `β` points at it and the null removes it. The fix is to estimate `β` from
+**noise-only cells**: `--trim F` (default `0.05`) drops the top `F` fraction of short-time
+cells (a Hann STFT, 1024/256) by power `|A|²+|B|²` — where strong signals concentrate — from
+the `β` sums, so `β` tracks the broadband common mode again. `β` stays one complex scalar and
+`C = B − βA` is still synthesised in the time domain; only the *estimate* is cleaned, so the
+stream stays LTI and phase-coherent. `--trim 0` restores the exact all-sample estimate.
+
+This was chosen after measuring `β(f)` from the cross-spectrum: it is **frequency-flat** on
+every band (so a single scalar is the right model — a per-sub-band `β` is unnecessary), and
+40 m's apparent spread is just sharp dips at discrete signal frequencies dragging the global
+scalar down. A decode-guided mask that blanks the exact decoded tone tracks was also tried and
+matched blind trimming to within ~15 spots, so the simpler blind trim is the default.
 
 ## 3. Why it works — the A/B ratio plane
 
@@ -113,6 +132,17 @@ dominates (30 m +299 %, 17 m +221 %, 20 m +80 %, 15 m +75 %, 10 m +40 %, 80 m +1
 there `β` is set by the *wanted* signal and the null removes it. Keeping A and B turns that
 into pure upside, which is why the tool always decodes and merges all three.
 
+**Signal-excluded `β` (`--trim`, default `0.05`)** targets that last point (see §2).
+Estimating `β` on noise-only cells returns it to the common-mode ratio on the signal-rich
+bands, so the null stops removing the wanted signal: on a fresh hour-long 9-band FT8 capture
+it cuts the A/B spots the 40 m null was removing from **510 → 458** and raises 40 m's
+canceller-alone net from −377 to −315, while the merged pipeline stays at **+49 % over A∪B**,
+additive on every active band and with no regression on the bands that already win. The extra
+decodes were cross-checked against **PSKreporter**: a sample of "CMC-new" decodes (found by
+the canceller, by *neither* antenna) were independently confirmed in the same 15 s slot by
+other receivers — one −18 dB signal by **43 receivers across three continents** —
+corroborating beyond jt9's CRC-14 that they are real on-air signals.
+
 ## 5. Using it — the `common-mode-cancelling` decoder
 
 Point an `fcfbfarm` `[decoder]` at `common-mode-cancelling` and set `wav_format = iq`:
@@ -139,6 +169,8 @@ For each dual-ADC I/Q window it decodes **three** channels — antenna A, antenn
   ≥ any one channel. The cost is two extra decoder runs per window.
 - **`--ref`** selects the reference antenna: the default `--ref A` gives `C = B − βA`;
   `--ref B` gives `C = A − βB` (β referenced to B).
+- **`--trim F`** (default `0.05`) estimates `β` from noise-only cells so a strong signal
+  cannot capture it on signal-rich bands (§2); `--trim 0` uses the exact all-sample `β`.
 - **It requires the I/Q WAV.** `common-mode-cancelling` hard-fails on a non-dual-I/Q WAV,
   and `fcfbfarm` **fails fast at startup** if a `common-mode-cancelling` decoder is
   configured without `wav_format = iq`.
@@ -153,14 +185,18 @@ For each dual-ADC I/Q window it decodes **three** channels — antenna A, antenn
 
 ## 6. Caveats
 
-- Gain is **band-dependent**, and the canceller *alone* is **net-negative** on the bands
-  where one antenna carries the strong signals (so `β` nulls them). This is exactly why A,
-  B *and* `B − βA` are always decoded and merged — the union is then positive on every band.
+- Gain is **band-dependent**, and the canceller *alone* can still be **net-negative** on the
+  bands where one antenna carries the strong signals. Signal-excluded `β` (`--trim`, §2)
+  reduces this markedly but does not remove it entirely — some strong signals arrive with a
+  spatial ratio genuinely near `β` and fall in the single null. This is exactly why A, B *and*
+  `B − βA` are always decoded and merged — the union is then positive on every band.
 - A strong *wanted* signal that happens to share the common-mode ratio is attenuated — but
   that signal is normally also the easiest for the plain A/B decode to catch, so the merge
   recovers it.
-- `β` is estimated per window (two sums over the samples). It can instead be treated as a
-  fixed calibration if it proves stable across time.
+- `β` is estimated per window (a couple of sums over the samples, or a light STFT when
+  trimming). It was measured to **drift over the hour** (|β| coefficient of variation 9–50 %,
+  largest on the signal-rich bands), so per-window estimation stays — it is not a fixed
+  calibration.
 
 ---
 
