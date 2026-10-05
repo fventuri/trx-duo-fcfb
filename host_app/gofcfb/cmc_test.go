@@ -22,7 +22,7 @@ func TestCommonModeCancelBeta(t *testing.T) {
 	d := &WavData{FormatTag: wavFmtFloat, NumCh: 4, Rate: 12000,
 		F32: []float32{1, 0, 3, 0, 0, 1, 0, 1}}
 
-	monoA, bA, err := commonModeCancel(d, "A")
+	monoA, bA, err := commonModeCancel(d, "A", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestCommonModeCancelBeta(t *testing.T) {
 		t.Fatalf("ref A: real(C) int16 = %v, want %v", monoA, want)
 	}
 
-	monoB, bB, err := commonModeCancel(d, "B")
+	monoB, bB, err := commonModeCancel(d, "B", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestCommonModeCancelComplexBeta(t *testing.T) {
 	// A = {1+0j, 0+1j}, B = {0+1j, -1+0j} = (0+1j)*A exactly -> β = j, C = 0.
 	d := &WavData{FormatTag: wavFmtFloat, NumCh: 4, Rate: 12000,
 		F32: []float32{1, 0, 0, 1, 0, 1, -1, 0}}
-	_, b, err := commonModeCancel(d, "A")
+	_, b, err := commonModeCancel(d, "A", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,6 +69,55 @@ func TestCommonModeCancelComplexBeta(t *testing.T) {
 	}
 }
 
+// TestBetaTrimmedExcludesSignal verifies the signal-excluded β (doc 13 enh. A): with
+// a common-mode noise ratio β0 = 0.3 (B = 0.3·A for the noise) plus a strong tone
+// present only in A, the untrimmed β is dragged far below β0 (the bright A-only cells
+// inflate Σ|A|² with ~0 correlation), while the trimmed β drops those cells and
+// recovers ≈ β0 -- exactly the 40m "the signal pulls β into the null" fix.
+func TestBetaTrimmedExcludesSignal(t *testing.T) {
+	const N = 1024 * 8
+	beta0 := 0.3
+	rng := uint64(0x9e3779b97f4a7c15) // deterministic LCG noise
+	nxt := func() float64 {
+		rng = rng*6364136223846793005 + 1442695040888963407
+		return float64(int64(rng>>11))/float64(int64(1)<<52) - 0.5
+	}
+	f32 := make([]float32, 4*N)
+	var sumSig, sumNoise float64
+	for k := 0; k < N; k++ {
+		ar, ai := nxt(), nxt() // A noise
+		// strong tone at bin 200, in A only (so its A->B ratio is ~0, != beta0)
+		ph := 2 * math.Pi * 200 * float64(k) / float64(cmcNFFT)
+		g := 2.0
+		tr, ti := g*math.Cos(ph), g*math.Sin(ph)
+		axr, axi := ar+tr, ai+ti
+		bxr, bxi := beta0*ar, beta0*ai // B = beta0 * A_noise (no tone)
+		f32[4*k], f32[4*k+1] = float32(axr), float32(axi)
+		f32[4*k+2], f32[4*k+3] = float32(bxr), float32(bxi)
+		sumSig += tr*tr + ti*ti
+		sumNoise += ar*ar + ai*ai
+	}
+	d := &WavData{FormatTag: wavFmtFloat, NumCh: 4, Rate: 12000, F32: f32}
+
+	_, bUntrim, err := commonModeCancel(d, "A", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bTrim, err := betaTrimmed(d, 0, 2, 0.05)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// untrimmed β is pulled well below β0 by the strong A-only tone...
+	if real(bUntrim) > 0.2 {
+		t.Fatalf("untrimmed β real = %.3f, expected it dragged below 0.2 (β0=%.1f, tone/noise=%.1f)",
+			real(bUntrim), beta0, sumSig/sumNoise)
+	}
+	// ...while the trimmed β recovers the true common-mode ratio β0 = 0.3.
+	if math.Abs(real(bTrim)-beta0) > 0.03 || math.Abs(imag(bTrim)) > 0.03 {
+		t.Fatalf("trimmed β = %.3f%+.3fj, want ≈ %.1f+0j", real(bTrim), imag(bTrim), beta0)
+	}
+}
+
 // TestCommonModeCancelThreeDecodes: a 4-ch dual I/Q capture decodes A, B and CMC, in
 // that order, each tagged and run on its own prefixed temp file.
 func TestCommonModeCancelThreeDecodes(t *testing.T) {
@@ -79,7 +128,7 @@ func TestCommonModeCancelThreeDecodes(t *testing.T) {
 	if err := writeWAVFloat32(p, 12000, 4, []float32{0.1, 0.2, 0.3, 0.4, 0.5, -0.1, 0.2, 0.2}, a); err != nil {
 		t.Fatal(err)
 	}
-	out, rc, err := runCommonModeCancelling(stubArgs(p), "A", false)
+	out, rc, err := runCommonModeCancelling(stubArgs(p), "A", 0, false)
 	if err != nil || rc != 0 {
 		t.Fatalf("rc=%d err=%v", rc, err)
 	}
@@ -117,7 +166,7 @@ func TestCommonModeCancelRejectsNonDualIQ(t *testing.T) {
 	}
 
 	for _, p := range []string{mono, stereo, iq2} {
-		_, rc, err := runCommonModeCancelling(stubArgs(p), "A", false)
+		_, rc, err := runCommonModeCancelling(stubArgs(p), "A", 0, false)
 		if err == nil || rc == 0 {
 			t.Fatalf("%s: expected hard-fail, got rc=%d err=%v", filepath.Base(p), rc, err)
 		}
@@ -129,7 +178,7 @@ func TestCommonModeCancelRejectsNonDualIQ(t *testing.T) {
 
 // TestCommonModeCancelBadArgs: missing decoder command and a bad --ref are rejected.
 func TestCommonModeCancelBadArgs(t *testing.T) {
-	if _, rc, err := runCommonModeCancelling(nil, "A", false); err == nil || rc == 0 {
+	if _, rc, err := runCommonModeCancelling(nil, "A", 0, false); err == nil || rc == 0 {
 		t.Fatalf("empty args should fail, got rc=%d err=%v", rc, err)
 	}
 	p := filepath.Join(t.TempDir(), "iq4.wav")
@@ -138,7 +187,7 @@ func TestCommonModeCancelBadArgs(t *testing.T) {
 	if err := writeWAVFloat32(p, 12000, 4, []float32{0.1, 0.2, 0.3, 0.4}, a); err != nil {
 		t.Fatal(err)
 	}
-	if _, rc, err := runCommonModeCancelling(stubArgs(p), "X", false); err == nil || rc == 0 {
+	if _, rc, err := runCommonModeCancelling(stubArgs(p), "X", 0, false); err == nil || rc == 0 {
 		t.Fatalf("bad --ref should fail, got rc=%d err=%v", rc, err)
 	}
 }
