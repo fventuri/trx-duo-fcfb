@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="980" height="500" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd">
+ <defs>
+  <marker id="Arrow1L" overflow="visible" markerHeight="5" markerWidth="8.75" orient="auto-start-reverse" refX="4.25">
+   <path transform="scale(.5)" d="m0 0-5 5 17.5-5-17.5-5z" fill="context-stroke" fill-rule="evenodd"/>
+  </marker>
+ </defs>
+ <style>
+  text { font-family: "Roboto Condensed", "DejaVu Sans Condensed", sans-serif; font-size: 14px; fill: #000000; text-anchor: middle; }
+  rect { fill: none; stroke: #000000; stroke-dasharray: 3, 3; }
+  path { fill: none; stroke: #000000; }
+  .ann  { font-size: 12px; fill: #333333; }
+  .sig  { fill: #2563eb; }       /* wanted signal  */
+  .noi  { fill: #dc2626; }       /* common-mode noise */
+  .sigs { stroke: #2563eb; }
+  .nois { stroke: #dc2626; }
+  .lbl  { font-size: 13px; font-weight: bold; }
+  .frm  { stroke: #888; stroke-dasharray: 2,2; }
+ </style>
+
+ <!-- ===== Title ===== -->
+ <text class="lbl" x="490" y="22" style="font-size:16px">Dual-RX common-mode canceller  Y = B − β·A</text>
+
+ <!-- ===== Part 1: processing flow (y ~ 45–150) ===== -->
+ <text class="ann" x="48" y="92"><tspan sodipodi:role="line" x="48" y="86">dual-ADC</tspan><tspan sodipodi:role="line" x="48" y="101">I/Q WAV</tspan></text>
+ <path d="m18 104h66" marker-end="url(#Arrow1L)"/>
+
+ <!-- split A,B -->
+ <rect x="86" y="80" width="118" height="48"/>
+ <text x="145" y="98"><tspan sodipodi:role="line" x="145" y="97">de-interleave</tspan><tspan sodipodi:role="line" x="145" y="112" class="sigs" style="fill:#2563eb">A = I_A+jQ_A</tspan><tspan sodipodi:role="line" x="145" y="126" class="nois" style="fill:#dc2626">B = I_B+jQ_B</tspan></text>
+
+ <!-- A and B rails -->
+ <path d="m204 96 h150" marker-end="url(#Arrow1L)"/>
+ <text class="ann" x="250" y="90" style="fill:#2563eb">A</text>
+ <path d="m204 112 h150" marker-end="url(#Arrow1L)"/>
+ <text class="ann" x="250" y="126" style="fill:#dc2626">B</text>
+
+ <!-- beta estimate (above) -->
+ <rect x="356" y="38" width="196" height="40"/>
+ <text x="454" y="54"><tspan sodipodi:role="line" x="454" y="53">estimate β  (common-mode ratio)</tspan><tspan sodipodi:role="line" x="454" y="69">β = Σₖ Aₖ*Bₖ ∕ Σₖ |Aₖ|²  (STFT bins)</tspan></text>
+ <!-- A,B feed beta (tap up into the box bottom, clear of the text) -->
+ <path d="m300 104 v-20 h90 v-6" marker-end="url(#Arrow1L)" class="frm"/>
+ <text class="ann" x="300" y="80" style="fill:#666">A,B</text>
+ <!-- combine node -->
+ <rect x="356" y="86" width="118" height="40"/>
+ <text x="415" y="104"><tspan sodipodi:role="line" x="415" y="103">combine</tspan><tspan sodipodi:role="line" x="415" y="119">Y = B − β·A</tspan></text>
+ <path d="m454 78 v8" marker-end="url(#Arrow1L)"/>
+ <text class="ann" x="469" y="88">β</text>
+
+ <!-- Y -> real/int16 -->
+ <path d="m474 106 h40" marker-end="url(#Arrow1L)"/>
+ <rect x="516" y="80" width="120" height="48"/>
+ <text x="576" y="98"><tspan sodipodi:role="line" x="576" y="97">real(Y) → int16</tspan><tspan sodipodi:role="line" x="576" y="112">peak-normalise</tspan><tspan sodipodi:role="line" x="576" y="126">12 kHz mono</tspan></text>
+ <path d="m636 104 h34" marker-end="url(#Arrow1L)"/>
+ <rect x="672" y="86" width="104" height="40"/>
+ <text x="724" y="104"><tspan sodipodi:role="line" x="724" y="103">jt9 --ft8</tspan><tspan sodipodi:role="line" x="724" y="119">-d 3</tspan></text>
+ <path d="m776 106 h40" marker-end="url(#Arrow1L)"/>
+ <text class="ann" x="880" y="104"><tspan sodipodi:role="line" x="880" y="99">decoded</tspan><tspan sodipodi:role="line" x="880" y="114">spots</tspan></text>
+
+ <text class="ann" x="490" y="150">A single LTI complex mix → phase-coherent across frequency, so stock jt9 decodes it unchanged. Also decode A and B separately and merge.</text>
+
+ <!-- divider -->
+ <path d="m40 172 h900" class="frm"/>
+ <text class="lbl" x="490" y="196">Why it works:  Y = B − β·A = A·(r − β),   r ≡ B/A  (the per-source A→B ratio)</text>
+
+ <!-- ===== Part 2a: time/spectrum intuition (left) ===== -->
+ <text class="ann" x="232" y="222" style="font-size:13px;font-weight:bold">Common-mode noise is shared</text>
+ <!-- two little spectra -->
+ <text class="ann" x="120" y="242" style="fill:#2563eb">A</text>
+ <text class="ann" x="344" y="242" style="fill:#dc2626">B ≈ β·A</text>
+ <!-- noise floor bars + a couple of signal spikes -->
+ <!-- A panel -->
+ <path d="m60 322 l0 -2 m10 2 l0 -3 m10 3 l0 -2 m10 2 l0 -4 m10 4 l0 -2 m10 2 l0 -3 m10 3 l0 -2 m10 2 l0 -3 m10 3 l0 -2 m10 2 l0 -3 m10 3 l0 -2 m10 2 l0 -3 m10 3 l0 -2 m10 2 l0 -3 m10 3 l0 -2" class="nois"/>
+ <path d="m95 322 v-34" class="sigs"/><path d="m150 322 v-20" class="sigs"/>
+ <text class="ann" x="135" y="336">A: weak signals buried in noise floor</text>
+ <!-- B panel -->
+ <path d="m250 310 l0 -2 m10 2 l0 -3 m10 3 l0 -2 m10 2 l0 -4 m10 4 l0 -2 m10 2 l0 -3 m10 3 l0 -2 m10 2 l0 -3 m10 3 l0 -2 m10 2 l0 -3 m10 3 l0 -2 m10 2 l0 -3 m10 3 l0 -2 m10 2 l0 -3 m10 3 l0 -2 m10 2 l0 -3 m10 3 l0 -2" class="nois"/>
+ <path d="m285 310 v-34" class="sigs"/><path d="m340 310 v-20" class="sigs"/>
+ <text class="ann" x="300" y="324">B: same floor, +β scaled</text>
+ <text class="ann" x="232" y="360" style="fill:#dc2626">noise floor is the SAME shape in A and B (|ρ|≈0.77)</text>
+ <text class="ann" x="232" y="376">→ B − β·A cancels the shared floor…</text>
+ <text class="sig" x="232" y="394" style="font-weight:bold">…leaving the weak signals standing clear.</text>
+
+ <!-- ===== Part 2b: ratio-plane null (right) ===== -->
+ <text class="ann" x="720" y="222" style="font-size:13px;font-weight:bold">The canceller nulls one direction in the A/B ratio plane</text>
+ <!-- axes -->
+ <path d="m600 380 h240" marker-end="url(#Arrow1L)"/>
+ <path d="m720 420 v-120" marker-end="url(#Arrow1L)"/>
+ <text class="ann" x="846" y="384">Re(r)</text>
+ <text class="ann" x="720" y="292">Im(r)</text>
+ <text class="ann" x="712" y="394">0</text>
+ <!-- beta null point -->
+ <path d="m672 352 l12 12 m0 -12 l-12 12" class="nois" stroke-width="2"/>
+ <circle cx="678" cy="358" r="16" fill="none" class="nois"/>
+ <text class="noi" x="678" y="338" style="font-weight:bold">β</text>
+ <text class="ann" x="650" y="376" style="fill:#dc2626">NULL</text>
+ <!-- signal points elsewhere -->
+ <circle cx="770" cy="330" r="4" class="sig"/><circle cx="800" cy="360" r="4" class="sig"/>
+ <circle cx="748" cy="400" r="4" class="sig"/><circle cx="812" cy="336" r="4" class="sig"/>
+ <text class="sig" x="812" y="326">signals (various r)</text>
+ <!-- output amplitude annotation -->
+ <text class="ann" x="720" y="446">output amplitude ∝ |r − β| :  common-mode (r=β) → 0,  signals (r≠β) → pass</text>
+ <text class="ann" x="720" y="464" style="fill:#333">a signal landing near β is attenuated → the few "lost" spots (recovered by keeping A/B).</text>
+
+ <!-- result callout -->
+ <rect x="60" y="410" width="344" height="58" style="stroke:#2563eb;stroke-dasharray:4,2"/>
+ <text class="sig" x="232" y="430" style="font-weight:bold;font-size:14px">Measured (20m, 245 windows, jt9 -d 3)</text>
+ <text x="232" y="448" style="font-size:13px">union(A,B) = 618  →  canceller = 1317  (+113%)</text>
+ <text class="ann" x="232" y="463">+771 new signals, −72 (null-aligned). 16:16:15: 1→8.</text>
+</svg>

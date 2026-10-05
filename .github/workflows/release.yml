@@ -55,7 +55,7 @@ jobs:
             local goos="$1" goarch="$2" label="$3" ext="$4"
             local stage="fcfb-host-$label"
             rm -rf "$stage"; mkdir -p "$stage"
-            for cmd in fcfbfarm fcfbhpsdr fcfbinfo wav-to-decoder; do
+            for cmd in fcfbfarm fcfbhpsdr fcfbinfo wav-to-decoder common-mode-cancelling; do
               GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
                 go build -trimpath -ldflags="-s -w" -o "$stage/$cmd$ext" "./cmd/$cmd"
             done

@@ -63,6 +63,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -200,6 +201,18 @@ func parseConfig(path string) (Config, error) {
 	if err := validateDecoders(cfg.Decoders); err != nil {
 		return cfg, err
 	}
+	// common-mode-cancelling needs the 4-channel float I/Q WAV, so it only works with
+	// wav_format = iq.  Fail fast here -- otherwise every decode would error out on the
+	// wrong WAV format, and the farm discards decoder stderr, so the run would just
+	// silently produce no spots.
+	if cfg.WavFormat != "iq" {
+		for _, d := range cfg.Decoders {
+			if decoderIsCMC(d.Cmd) {
+				return cfg, fmt.Errorf("config: decoder %q uses common-mode-cancelling, "+
+					"which needs the dual-ADC I/Q WAV; set [fcfbfarm] wav_format = iq", d.Name)
+			}
+		}
+	}
 	if len(cfg.Channels) == 0 {
 		return cfg, fmt.Errorf("config: at least one [channel] is required")
 	}
@@ -212,6 +225,13 @@ func parseConfig(path string) (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// decoderIsCMC reports whether a [decoder] cmd invokes the common-mode-cancelling
+// wrapper (matched by program basename, so a full path to it works too).
+func decoderIsCMC(cmd string) bool {
+	toks := splitCmd(cmd)
+	return len(toks) > 0 && filepath.Base(toks[0]) == "common-mode-cancelling"
 }
 
 // validateDecoders checks each [decoder] is complete and names are unique.

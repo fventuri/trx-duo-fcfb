@@ -18,9 +18,10 @@ A distributed fast-convolution filter bank (FCFB) in the spirit of
 
 ## The host applications
 
-The Go host side (`host_app/gofcfb`) builds three self-contained binaries — no
+The Go host side (`host_app/gofcfb`) builds several self-contained binaries — no
 dependencies beyond the Go standard library, and the synthesis kernel is embedded, so
-each is a single static binary that runs on Linux, Windows and macOS:
+each is a single static binary that runs on Linux, Windows and macOS. Three are run
+directly:
 
 - **`fcfbfarm`** — a decoder farm: reconstructs many channels from the one board
   stream and runs `jt9` (FT8/FT4) or `wsprd` (WSPR) on UTC-aligned windows.
@@ -28,6 +29,24 @@ each is a single static binary that runs on Linux, Windows and macOS:
   to any P2 client (piHPSDR, Thetis, linhpsdr) as one or more HPSDR radios.
 - **`fcfbinfo`** — a one-shot board-info client (temperature, voltages, FPGA part,
   gateware).
+
+Two more are **decoder wrappers**: you don't run them yourself, `fcfbfarm` invokes one
+as its `[decoder] cmd` (with `{wav}` substituted) to turn a captured WAV into decoder
+input. Each emits the decoder's spots, tagging every antenna's decode with an `#ANT`
+marker the farm merges:
+
+- **`wav-to-decoder`** — runs the decoder once per channel in the WAV, autodetecting
+  the format the farm wrote (real audio or complex I/Q, single or dual ADC): for a
+  dual-ADC diversity window it splits the two antennas and decodes each
+  (`#ANT A` / `#ANT B`). Example: `cmd = wav-to-decoder jt9 --ft8 {wav}`.
+- **`common-mode-cancelling`** — for a dual-ADC I/Q window, decodes the two antennas
+  **and** a third **common-mode-cancelled** channel `C = B − βA` (`#ANT CMC`). The two
+  receivers share a largely common-mode noise/interference; the frequency-flat null
+  `B − βA` (β a single complex scalar) cancels it while keeping spatially diverse
+  signals, recovering extra weak-signal decodes on top of A and B. Needs the 4-channel
+  I/Q WAV, so the farm must be set to `wav_format = iq`. Example:
+  `cmd = common-mode-cancelling jt9 --ft8 {wav}` — see
+  [`docs/common-mode-cancellation.md`](docs/common-mode-cancellation.md).
 
 Prebuilt binaries for Linux, Windows and macOS, plus the board SD-card image, are on
 the [releases page](https://github.com/fventuri/trx-duo-fcfb/releases/latest)
@@ -38,7 +57,8 @@ the [releases page](https://github.com/fventuri/trx-duo-fcfb/releases/latest)
 ```
 fpga/            Stage-1 FPGA design (Amaranth HDL): 4096 analysis FFT + bin-select egress
 host/            board-side (ARM) TCP-control + UDP-data server (C) + wire protocol
-host_app/gofcfb/ the Go host applications (fcfbfarm / fcfbhpsdr / fcfbinfo)
+host_app/gofcfb/ the Go host apps (fcfbfarm / fcfbhpsdr / fcfbinfo) + the decoder
+                 wrappers (wav-to-decoder / common-mode-cancelling)
 buildroot/       stacked BR2_EXTERNAL that builds the board SD-card image
 ```
 

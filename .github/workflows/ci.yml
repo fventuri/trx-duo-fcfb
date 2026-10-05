@@ -26,6 +26,7 @@ jobs:
           go build ./cmd/fcfbfarm
           go build ./cmd/fcfbhpsdr
           go build ./cmd/fcfbinfo
+          go build ./cmd/common-mode-cancelling
       - name: go test
         run: go test ./...
 
